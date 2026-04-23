@@ -11,6 +11,7 @@ namespace minidb{
 }
 #pragma once
 #include <cstdint>
+#include <cassert>
 
 namespace minidb {
 
@@ -28,6 +29,8 @@ struct TupleHeader {
     uint16_t      infomask;  // hint bits
     uint16_t      natts;     // number of attributes
 };
+
+static_assert(sizeof(TupleHeader) == 16, "TupleHeader size must be 16 bytes");
 
 struct Snapshot {
     TransactionId xmin;   // lowest active xid

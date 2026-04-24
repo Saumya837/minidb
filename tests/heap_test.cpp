@@ -1,10 +1,8 @@
 #include <iostream>
-
-#include <iostream>
 #include <cassert>
 #include <libpq-fe.h>
 #include "page.h"
-
+#include "pagestore.h"
 using namespace minidb;
 using namespace std;
 
@@ -77,13 +75,55 @@ void test_postgres_page(PGconn* conn) {
     
 }
 
+void test_file_page_store() {
+    // TODO: create FilePageStore at /tmp/minidb_test.db
+    remove("/tmp/minidb_test.db");
+    FilePageStore store("/tmp/minidb_test.db");
+
+    // TODO: allocate 3 pages
+    uint32_t page0 = store.allocate_page();
+    uint32_t page1 = store.allocate_page();
+    uint32_t page2 = store.allocate_page();
+    cout << "num_pages: " <<store.num_pages() << "\n";
+
+    // TODO: insert a tuple into page 0
+    Page page;
+    uint8_t tuple_data[4] = {1, 2, 3, 4};
+    uint16_t tuple_len = 4;
+    uint16_t lp_index = page.insert_tuple(tuple_data, tuple_len);
+    assert(lp_index == 1);
+    store.write_page(page0, page);
+
+    // // TODO: flush
+    store.flush();
+
+    // TODO: reopen the same file in a new FilePageStore
+    FilePageStore store2("/tmp/minidb_test.db");
+
+    // TODO: read page 0 back
+    store2.read_page(page0, page);
+
+    // TODO: assert tuple data matches
+    uint16_t out_len;
+    const uint8_t* out_data = page.get_tuple(lp_index, out_len);
+    std::cout << "Read back tuple: ";
+    for (uint16_t i = 0; i < out_len; i++) {
+        std::cout << (int)out_data[i] << " ";
+    }
+    std::cout << "\n";
+    
+    assert(out_len == tuple_len);
+    assert(memcmp(out_data, tuple_data, tuple_len) == 0);
+}
+
 int main() {
-    PGconn* conn = PQconnectdb("dbname=postgres user=saumyakumar host=/tmp");
+    // PGconn* conn = PQconnectdb("dbname=postgres user=saumyakumar host=/tmp");
     // TODO: check connection status, exit on failure
 
-    test_minidb_page();
-    test_postgres_page(conn);
+    // test_minidb_page();
+    // test_postgres_page(conn);
+    test_file_page_store();
 
-    PQfinish(conn);
+    // PQfinish(conn);
     return 0;
 }

@@ -8,13 +8,7 @@ using namespace std;
 
 namespace minidb {
 
-class FilePageStore : public PageStore {
-    int fd_;
-    std::string path_;
-    uint32_t num_pages_;
-
-public:
-    FilePageStore(const std::string& path) {
+    FilePageStore::FilePageStore(const string& path) {
         // TODO: open file with open(), O_RDWR | O_CREAT, permissions 0644
         fd_ = open(path.c_str(), O_RDWR | O_CREAT, 0644);
         if(fd_ < 0)
@@ -24,14 +18,14 @@ public:
         num_pages_ = lseek(fd_, 0, SEEK_END)/PAGE_SIZE;
     }
 
-    ~FilePageStore() {
+    FilePageStore::~FilePageStore() {
         // TODO: close fd_
         if(fd_ >= 0){
             close(fd_);
         }
     }
 
-    void read_page(uint32_t page_no, Page& page) override {
+    void FilePageStore::read_page(uint32_t page_no, Page& page){
         // TODO: bounds check — page_no must be < num_pages_
         if(page_no >= num_pages_)
             throw out_of_range("Page number out of range: " + to_string(page_no));
@@ -43,10 +37,12 @@ public:
         // TODO: check return value — pread returns bytes read
         if(bytes_read != PAGE_SIZE)
             throw runtime_error("Failed to read full page from file:" 
-                    + path_ + " at page number: " + to_string(page_no));    
+                    + path_ + " at page number: " + to_string(page_no));
+
+        printf("bytes_read = %zd\n", bytes_read);
     }
 
-    void write_page(uint32_t page_no, const Page& page) override {
+    void FilePageStore::write_page(uint32_t page_no, const Page& page){
         // TODO: bounds check
         if(page_no >= num_pages_)
             throw out_of_range("Page number out of range:" + to_string(page_no));
@@ -59,25 +55,25 @@ public:
                     + path_ + " at page number: " + to_string(page_no));
     }
 
-    uint32_t allocate_page() override {
+    uint32_t FilePageStore::allocate_page(){
         //TODO: create a new empty page
         Page next = Page();
 
-        //TODO: write it to the end of the file
-        write_page(num_pages_, next);
-
-         //TODO: increment num_pages_ and return the allocated page number
+        //TODO: increment num_pages_ and return the allocated page number
         num_pages_++;
-        
+
+        //TODO: write it to the end of the file
+        write_page(num_pages_-1, next);
+
         return num_pages_-1; //return the allocated page number
     }
 
-    uint32_t num_pages() override {
+    uint32_t FilePageStore::num_pages() {
         // TODO: return num_pages_
         return num_pages_;
     }
 
-    void flush() override {
+    void FilePageStore::flush(){
         // TODO: fsync(fd_)
         if(fd_ >= 0){
             if(fsync(fd_) != 0){
@@ -86,5 +82,4 @@ public:
         }
     }
 };
-
-} // namespace minidb
+ // namespace minidb

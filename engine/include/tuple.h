@@ -1,46 +1,28 @@
 #pragma once
 #include <cstdint>  
 #include <unordered_set>
+#include <snapshot.h>
+#include "types.h"
 
 using namespace std;
 
-namespace minidb{
-    using TransactionId = uint32_t;
-    static constexpr TransactionId XID_INVALID = 0;
-
-}
 #pragma once
 #include <cstdint>
 #include <cassert>
 
 namespace minidb {
-
-using TransactionId = uint32_t;
-static constexpr TransactionId XID_INVALID = 0;
-static constexpr TransactionId XID_FROZEN   = 2;
-
-struct TupleHeader {
-    TransactionId xmin;  // inserting transaction
-    TransactionId xmax;  // deleting transaction (0 if alive)
-    union {
-        uint32_t cmin;
-        uint32_t cmax;
+    struct TupleHeader {
+        TransactionId xmin;  // inserting transaction
+        TransactionId xmax;  // deleting transaction (0 if alive)
+        union {
+            uint32_t cmin;
+            uint32_t cmax;
+        };
+        uint16_t      infomask;  // hint bits
+        uint16_t      natts;     // number of attributes
     };
-    uint16_t      infomask;  // hint bits
-    uint16_t      natts;     // number of attributes
-};
 
 static_assert(sizeof(TupleHeader) == 16, "TupleHeader size must be 16 bytes");
-
-struct Snapshot {
-    TransactionId xmin;   // lowest active xid
-    TransactionId xmax;   // first xid that was not yet started
-    TransactionId current_xid;  // who took this snapshot
-    uint32_t      current_cid;  // current command ID
-    unordered_set<TransactionId> active_xids;
-};
-
-
 
 bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap) {
 

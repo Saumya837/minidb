@@ -111,7 +111,6 @@ void test_file_page_store() {
         std::cout << (int)out_data[i] << " ";
     }
     std::cout << "\n";
-    
     assert(out_len == tuple_len);
     assert(memcmp(out_data, tuple_data, tuple_len) == 0);
 }

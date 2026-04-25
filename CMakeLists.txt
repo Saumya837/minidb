@@ -20,6 +20,7 @@ add_library(minidb_engine STATIC
     engine/src/page.cpp
     engine/src/tuple.cpp
     engine/src/pagestore.cpp
+    engine/src/transaction_manager.cpp
 )
 
 add_executable(validator
@@ -30,4 +31,8 @@ target_link_libraries(validator minidb_engine pq)
 add_executable(heap_test
     tests/heap_test.cpp
 )
+add_executable(txn_test
+    tests/txn_test.cpp
+)
+target_link_libraries(txn_test minidb_engine pq)
 target_link_libraries(heap_test minidb_engine pq)

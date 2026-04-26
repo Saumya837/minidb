@@ -46,17 +46,11 @@ MiniDB is an effort to deeply understand:
 
 ---
 
-## Validation Against PostgreSQL
-
-MiniDB is validated against a live PostgreSQL 15 instance to ensure correctness.
-
-Validation tools used:
-
-* `pageinspect` (page-level inspection)
-* `pgstattuple` (tuple statistics)
-* `pg_stat_activity` (transaction behavior)
-
-This ensures that internal behaviors such as page layout, tuple visibility, and transaction semantics align with real-world systems.
+## Validation Approach
+Every module is validated against a live PostgreSQL 15 instance.
+PageHeader offsets verified via `pageinspect`. Tuple visibility rules
+verified via `heap_page_items()`. Snapshot behavior verified via
+`txid_current_snapshot()`.
 
 ---
 

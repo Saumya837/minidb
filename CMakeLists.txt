@@ -36,10 +36,16 @@ add_executable(txn_test
     tests/txn_test.cpp
 )
 
+add_executable(tuple_visiblity_test
+    tests/tuple_visiblity_test.cpp
+)
+
 add_executable(buffer_pool_test
     tests/buffer_pool_test.cpp        
 )
 
+
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)
+target_link_libraries(tuple_visiblity_test minidb_engine pq)
 target_link_libraries(buffer_pool_test minidb_engine pq)

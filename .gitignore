@@ -2,3 +2,5 @@ build/
 *.o
 *.a
 .DS_Store
+./engine/include/buffer_pool.h
+./src/include/buffer_pool.cpp

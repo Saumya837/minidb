@@ -12,7 +12,7 @@ void test_basic_lifecycle() {
     TransactionId first_xid = tm.begin();
     assert(first_xid == 3);
 
-    vector<TransactionId> active_xids;
+    std::vector<TransactionId> active_xids;
     for(int i = 0; i<5; i++){
         TransactionId temp_xid = tm.begin();
         active_xids.emplace_back(temp_xid);

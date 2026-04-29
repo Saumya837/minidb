@@ -1,6 +1,7 @@
 #include "types.h"
 #include "snapshot.h"
 #include "tuple.h"
+#include <iostream>
 
 namespace minidb{
     
@@ -13,10 +14,12 @@ namespace minidb{
             if (hdr.xmin == XID_FROZEN) return true;
 
             // 3. same transaction inserted it — check command ID
-            if (hdr.xmin == snap.current_xid) {
-                if (hdr.cmin >= snap.current_cid) return false;
-                // inserted by earlier command — fall through to xmax checks
-            } else {
+            if (hdr.xmin == snap.current_xid){
+                uint16_t cmin = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmin : 0;
+                if (cmin >= snap.current_cid)
+                    return false;
+            } 
+            else {
                 // 4. inserted by future transaction — not visible
                 if (hdr.xmin >= snap.xmax) return false;
 
@@ -33,7 +36,10 @@ namespace minidb{
 
             // 8. same transaction deleted it — check command ID
             if (hdr.xmax == snap.current_xid) {
-                if (hdr.cmax > snap.current_cid) return true;
+                uint16_t cmax = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmax : 0;
+                if ( hdr.cmax > snap.current_cid){
+                    return true;
+                }
                 return false;
             }
 

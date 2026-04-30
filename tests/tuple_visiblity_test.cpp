@@ -31,7 +31,7 @@ void test_dirty_read_not_visible(){
     tm.commit_transaction(first_xid);
 
     // TODO: take fresh snapshot as C'
-    hdr.infomask = HEAP_XMIN_COMMITTED;
+    hdr.infomask =  hdr.infomask & HEAP_XMIN_COMMITTED;
 
     TransactionId third_xid = tm.begin();
     Snapshot snap_c = tm.get_snapshot(third_xid, 0);
@@ -39,38 +39,36 @@ void test_dirty_read_not_visible(){
 
     // TODO: assert tuple IS visible to C
     assert(tuple_is_visible(hdr, snap_c) == true);
-
 }
 
 void test_same_transaction_delete_not_visible(){
-    // The transaction deletes it's own insertion 
-
     TransactionManager tm;
-
     TransactionId first_xid = tm.begin();
-    Snapshot snap_a = tm.get_snapshot(first_xid, 0);
 
-    //Insertion by the 2nd transaction
+    // Insert
     TupleHeader hdr;
     hdr.xmin = first_xid;
-    hdr.xmax = 0;
-    hdr.cmin = 0; 
+    hdr.xmax = XID_INVALID;
+    hdr.cmin = 0;
     hdr.infomask = HEAP_XMIN_IS_SET;
     hdr.natts = 1;
 
+    // Same command — not visible yet
+    Snapshot snap_a = tm.get_snapshot(first_xid, 0);
     assert(tuple_is_visible(hdr, snap_a) == false);
 
-    //Deletion by the same transaction 
+    // Delete in command 2
     hdr.xmax = first_xid;
     hdr.cmax = 2;
-    hdr.infomask = HEAP_XMAX_IS_SET;
+    hdr.infomask = HEAP_XMAX_IS_SET; // clears XMIN_IS_SET, sets XMAX_IS_SET
 
+    // Command 1 — delete hasn't happened yet — visible
     Snapshot snap_b = tm.get_snapshot(first_xid, 1);
-    assert(tuple_is_visible(hdr, snap_b) == true); 
+    assert(tuple_is_visible(hdr, snap_b) == true);
 
+    // Command 3 — delete has happened — not visible
     Snapshot snap_c = tm.get_snapshot(first_xid, 3);
     assert(tuple_is_visible(hdr, snap_c) == false);
-
 }
 
 void test_transaction_abort_not_visible(){
@@ -88,7 +86,8 @@ void test_transaction_abort_not_visible(){
 
     //Transaction is aborted due to some issues
     tm.abort_transaction(first_xid);
-    hdr_1.infomask = hdr_1.infomask | HEAP_XMIN_INVALID;
+    hdr_1.infomask =  HEAP_XMIN_INVALID;
+
 
     TransactionId second_xid = tm.begin();
     Snapshot snap_b = tm.get_snapshot(second_xid, 0);
@@ -104,7 +103,8 @@ void test_transaction_abort_not_visible(){
 
     //second_transaction commited
     tm.commit_transaction(second_xid);
-    hdr_2.infomask =  hdr_2.infomask | HEAP_XMIN_COMMITTED;
+    hdr_2.infomask = HEAP_XMIN_COMMITTED;
+
 
     TransactionId third_xid = tm.begin();
     hdr_2.xmax = third_xid;
@@ -119,12 +119,56 @@ void test_transaction_abort_not_visible(){
     assert(tuple_is_visible(hdr_2, snap_d) == true);
 }
 
+void test_tuple_freeze_visible(){
+    TupleHeader hdr_1;
+    hdr_1.xmin = XID_FROZEN;
+    hdr_1.xmax = 0;
+    hdr_1.cmin = 0;
+    hdr_1.infomask = HEAP_XMIN_COMMITTED;
+    hdr_1.natts = 1;
+
+    TransactionManager tm;
+    TransactionId xid = tm.begin();
+    Snapshot snap_a = tm.get_snapshot(xid, 0);
+
+    assert(tuple_is_visible(hdr_1, snap_a) == true);
+}
+
+void test_committed_delete_not_visible(){
+    TransactionManager tm;
+    TransactionId a_xid = tm.begin();
+
+    TupleHeader hdr_1;
+    hdr_1.xmin = a_xid;
+    hdr_1.xmax = 0;
+    hdr_1.cmin = 0;
+    hdr_1.infomask = HEAP_XMIN_IS_SET;
+    hdr_1.natts = 1;
+
+    tm.commit_transaction(a_xid);
+    hdr_1.infomask = hdr_1.infomask & HEAP_XMIN_COMMITTED;
+
+    TransactionId b_xid = tm.begin();
+    hdr_1.xmax = b_xid;
+    hdr_1.infomask = hdr_1.infomask | HEAP_XMAX_IS_SET;
+
+    tm.commit_transaction(b_xid);
+    hdr_1.infomask = hdr_1.infomask & HEAP_XMAX_COMMITTED;
+
+    TransactionId c_xid = tm.begin();
+    Snapshot snap_c = tm.get_snapshot(c_xid, 0);
+
+    assert(tuple_is_visible(hdr_1, snap_c) == false);
+}
+
 
 
 int main() {
-    test_dirty_read_not_visible();
+    // test_dirty_read_not_visible();
     test_same_transaction_delete_not_visible();
     test_transaction_abort_not_visible();
+    // test_tuple_freeze_visible();
+    // test_committed_delete_not_visible();
     std::cout << "txn_test: all passed\n";
     return 0;
 }

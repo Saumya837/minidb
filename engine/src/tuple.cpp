@@ -17,13 +17,15 @@ namespace minidb {
         //3. Current Trnsaction 
         if(hdr.xmin == snap.current_xid) {
             int16_t cmin = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmin : 0;
-            if(cmin >= snap.current_cid) 
+            if(cmin >= snap.current_cid) {
                 return false;
+            }
         }
         else{
                 //xmin checks
                 //4. Inserted by a future transaction - not visible
                 if(hdr.xmin >=  snap.xmax){
+                    std::cout<<"you are at 4"<<std::endl;
                     return false;
                 }
                     
@@ -33,7 +35,9 @@ namespace minidb {
                 }
                     
                 //6. Inseted by an older transaction but invalid
-                else if (hdr.infomask & HEAP_XMIN_INVALID) return false;
+                else if (hdr.infomask & HEAP_XMIN_INVALID) {
+                    return false;
+                }
         } 
 
         

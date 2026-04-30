@@ -3,55 +3,65 @@
 #include "tuple.h"
 #include <iostream>
 
-namespace minidb{
-    
+namespace minidb {
     bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap){
-    {
-            // 1. invalid tuple
-            if (hdr.xmin == XID_INVALID) return false;
 
-            // 2. frozen tuple — always visible
-            if (hdr.xmin == XID_FROZEN) return true;
+        //1. invalid tuple
+        if (hdr.xmin == XID_INVALID){
+            return false;
+        } 
 
-            // 3. same transaction inserted it — check command ID
-            if (hdr.xmin == snap.current_xid){
-                uint16_t cmin = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmin : 0;
-                if (cmin >= snap.current_cid)
-                    return false;
-            } 
-            else {
-                // 4. inserted by future transaction — not visible
-                if (hdr.xmin >= snap.xmax) return false;
+        //2. Frozen Tuple
+        if(hdr.xmin == XID_FROZEN) return true;
 
-                // 5. inserted by active transaction — not visible
-                if (snap.active_xids.count(hdr.xmin)) return false;
-
-                // 6. inserted by committed transaction — fall through to xmax checks
-            }
-
-            // --- xmax checks ---
-
-            // 7. not deleted — visible
-            if (hdr.xmax == XID_INVALID) return true;
-
-            // 8. same transaction deleted it — check command ID
-            if (hdr.xmax == snap.current_xid) {
-                uint16_t cmax = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmax : 0;
-                if ( hdr.cmax > snap.current_cid){
-                    return true;
-                }
+        //3. Current Trnsaction 
+        if(hdr.xmin == snap.current_xid) {
+            int16_t cmin = hdr.infomask & HEAP_XMIN_IS_SET ? hdr.cmin : 0;
+            if(cmin >= snap.current_cid) 
                 return false;
-            }
+        }
+        else{
+                //xmin checks
+                //4. Inserted by a future transaction - not visible
+                if(hdr.xmin >=  snap.xmax){
+                    return false;
+                }
+                    
+                //5. Inserted by a active transaction - not committed - not visible
+                else if(snap.active_xids.count(hdr.xmin) != 0){
+                    return false;
+                }
+                    
+                //6. Inseted by an older transaction but invalid
+                else if (hdr.infomask & HEAP_XMIN_INVALID) return false;
+        } 
 
-            // 9. deleted by active transaction — still visible to us
-            if (snap.active_xids.count(hdr.xmax)) return true;
+        
 
-            // 10. deleted by future transaction — still visible to us
-            if (hdr.xmax >= snap.xmax) return true;
+        //xmax checks
+        //4. Not deleted by anybody, Xmax not set 
+        if(hdr.xmax == XID_INVALID) return true;
 
-            // 11. deleted by committed transaction — not visible
+        if(hdr.xmax == snap.current_xid){
+            uint16_t cmax = hdr.infomask & HEAP_XMAX_IS_SET ? hdr.cmax : 0; 
+            if(cmax > snap.current_cid) return true;
             return false;
         }
 
+        //check if xmax is asborted - tuple is alive
+        if(hdr.infomask & HEAP_XMAX_INVALID) return true;
+
+        // xmax known committed — tuple is dead
+        if (hdr.infomask & HEAP_XMAX_COMMITTED) return false;
+
+        //deleted by a future transaction 
+        if(hdr.xmax >= snap.xmax) return true;
+
+        //deleted by an active transaction
+        if(snap.active_xids.count(hdr.xmax) != 0)
+            return true;
+
+        // should never reach here
+        assert(false && "tuple_is_visible: unhandled case");    
     }
-}
+};

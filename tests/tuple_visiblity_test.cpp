@@ -31,7 +31,7 @@ void test_dirty_read_not_visible(){
     tm.commit_transaction(first_xid);
 
     // TODO: take fresh snapshot as C'
-    hdr.infomask =  hdr.infomask & HEAP_XMIN_COMMITTED;
+    hdr.infomask = hdr.infomask & ~(HEAP_XMIN_IS_SET) | HEAP_XMIN_COMMITTED;
 
     TransactionId third_xid = tm.begin();
     Snapshot snap_c = tm.get_snapshot(third_xid, 0);
@@ -52,6 +52,7 @@ void test_same_transaction_delete_not_visible(){
     hdr.cmin = 0;
     hdr.infomask = HEAP_XMIN_IS_SET;
     hdr.natts = 1;
+
 
     // Same command — not visible yet
     Snapshot snap_a = tm.get_snapshot(first_xid, 0);
@@ -86,8 +87,7 @@ void test_transaction_abort_not_visible(){
 
     //Transaction is aborted due to some issues
     tm.abort_transaction(first_xid);
-    hdr_1.infomask =  HEAP_XMIN_INVALID;
-
+    hdr_1.infomask =  hdr_1.infomask & HEAP_XMIN_INVALID;
 
     TransactionId second_xid = tm.begin();
     Snapshot snap_b = tm.get_snapshot(second_xid, 0);
@@ -103,8 +103,7 @@ void test_transaction_abort_not_visible(){
 
     //second_transaction commited
     tm.commit_transaction(second_xid);
-    hdr_2.infomask = HEAP_XMIN_COMMITTED;
-
+    hdr_2.infomask = hdr_2.infomask & ~(HEAP_XMIN_IS_SET) | HEAP_XMIN_COMMITTED;
 
     TransactionId third_xid = tm.begin();
     hdr_2.xmax = third_xid;
@@ -112,7 +111,7 @@ void test_transaction_abort_not_visible(){
 
     //The third transaction aborted
     tm.abort_transaction(third_xid);//remove from the active list 
-    hdr_2.infomask = hdr_2.infomask | HEAP_XMAX_INVALID;
+    hdr_2.infomask = hdr_2.infomask | HEAP_XMAX_INVALID; //clear the XMAX_IS_SET bit
 
     TransactionId forth_xid = tm.begin();
     Snapshot snap_d = tm.get_snapshot(forth_xid, 0);
@@ -146,14 +145,14 @@ void test_committed_delete_not_visible(){
     hdr_1.natts = 1;
 
     tm.commit_transaction(a_xid);
-    hdr_1.infomask = hdr_1.infomask & HEAP_XMIN_COMMITTED;
+    hdr_1.infomask = hdr_1.infomask & ~(HEAP_XMIN_IS_SET) | HEAP_XMIN_COMMITTED;
 
     TransactionId b_xid = tm.begin();
     hdr_1.xmax = b_xid;
     hdr_1.infomask = hdr_1.infomask | HEAP_XMAX_IS_SET;
 
     tm.commit_transaction(b_xid);
-    hdr_1.infomask = hdr_1.infomask & HEAP_XMAX_COMMITTED;
+    hdr_1.infomask = hdr_1.infomask & ~(HEAP_XMAX_IS_SET) | HEAP_XMAX_COMMITTED;
 
     TransactionId c_xid = tm.begin();
     Snapshot snap_c = tm.get_snapshot(c_xid, 0);
@@ -164,11 +163,11 @@ void test_committed_delete_not_visible(){
 
 
 int main() {
-    // test_dirty_read_not_visible();
+    test_dirty_read_not_visible();
     test_same_transaction_delete_not_visible();
     test_transaction_abort_not_visible();
-    // test_tuple_freeze_visible();
-    // test_committed_delete_not_visible();
+    test_tuple_freeze_visible();
+    test_committed_delete_not_visible();
     std::cout << "txn_test: all passed\n";
     return 0;
 }

@@ -7,7 +7,7 @@
 #include <cassert>
 namespace minidb {
 
-
+    static constexpr uint16_t HEAP_NONE   = 0x0000;
     static constexpr uint16_t HEAP_XMIN_IS_SET    = 0x0001;
     static constexpr uint16_t HEAP_XMAX_IS_SET    = 0x0002;
     static constexpr uint16_t HEAP_XMIN_COMMITTED = 0x0100;

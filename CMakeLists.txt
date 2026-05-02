@@ -44,6 +44,10 @@ add_executable(buffer_pool_test
     tests/buffer_pool_test.cpp        
 )
 
+add_executable(insert_tuple_test
+    tests/insert_tuple_test.cpp        
+)
+
 
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)

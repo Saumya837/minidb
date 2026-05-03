@@ -22,6 +22,8 @@ add_library(minidb_engine STATIC
     engine/src/pagestore.cpp
     engine/src/transaction_manager.cpp
     engine/src/buffer_pool.cpp 
+    engine/src/free_space_map.cpp
+    engine/src/visibility_map.cpp
 )
 
 add_executable(validator

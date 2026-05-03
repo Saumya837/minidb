@@ -1,7 +1,6 @@
 #include "page.h"
 
 namespace minidb{
-
         PageHeader* Page::header() {
             return reinterpret_cast<PageHeader*>(data);
         }

@@ -54,16 +54,7 @@ namespace minidb{
          public:
             uint8_t data[PAGE_SIZE];
 
-        Page(){
-            memset(data, 0, PAGE_SIZE);
-            PageHeader* hdr = header();
-            hdr->pd_pagesize_version = PAGE_SIZE | 0x4;
-            hdr->pd_lower = sizeof(PageHeader);
-            hdr->pd_upper = PAGE_SIZE;
-            hdr->pd_special = PAGE_SIZE;
-            hdr->pd_prune_xid = 0;
-        }
-
+        Page();
         PageHeader* header();
         const PageHeader* header() const;
         uint16_t num_line_pointers() const;

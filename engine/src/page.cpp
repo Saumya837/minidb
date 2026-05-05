@@ -1,6 +1,17 @@
 #include "page.h"
 
 namespace minidb{
+
+        Page::Page(){
+            memset(data, 0, PAGE_SIZE);
+            PageHeader* hdr = header();
+            hdr->pd_pagesize_version = PAGE_SIZE | 0x4;
+            hdr->pd_lower = sizeof(PageHeader);
+            hdr->pd_upper = PAGE_SIZE;
+            hdr->pd_special = PAGE_SIZE;
+            hdr->pd_prune_xid = 0;
+        }
+        
         PageHeader* Page::header() {
             return reinterpret_cast<PageHeader*>(data);
         }

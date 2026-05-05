@@ -44,8 +44,8 @@ namespace minidb {
     };
 
     class BufferPoolManager {
-            uint32_t pool_size_;
-            Page* page;
+            uint32_t pool_size_;// number of pages in buffer pool 
+            Page* page; 
             BufferDesc* buffer_descriptors;
             uint32_t clock_hand_;
             int free_list_head_;

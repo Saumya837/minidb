@@ -21,7 +21,7 @@ add_library(minidb_engine STATIC
     engine/src/tuple.cpp
     engine/src/pagestore.cpp
     engine/src/transaction_manager.cpp
-    engine/src/buffer_pool.cpp 
+    engine/src/buffer.cpp 
     engine/src/free_space_map.cpp
     engine/src/visibility_map.cpp
 )
@@ -43,7 +43,7 @@ add_executable(tuple_visiblity_test
 )
 
 add_executable(buffer_pool_test
-    tests/buffer_pool_test.cpp        
+    tests/buffer_test.cpp        
 )
 
 add_executable(insert_tuple_test

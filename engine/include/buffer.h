@@ -25,12 +25,27 @@ namespace minidb {
         uint32_t relnumber;
         uint32_t blockNum;
         uint32_t forkNum;
+
+        bool operator==(const BufferTag& other) const {
+            return 
+            specOID == other.specOID && dbOID == other.dbOID && 
+            relnumber == other.relnumber && blockNum == other.blockNum && 
+            forkNum == other.forkNum;
+        }
     };
+
+    //state in buffer desc
+    //bits 31-22 : refcount/pin_count  (10 bits)
+    // bits 21-19 : usage_count         (3 bits)
+    // bit  18    : dirty flag
+    // bit  17    : valid flag
+    // bit  16    : io_in_progress flag
+    // bits 15-0  : reserved
 
     struct BufferDesc{
             BufferTag tag;
             int buf_id;
-            std::atomic<uint32_t> state; //
+            std::atomic<uint32_t> state; 
             int free_next;
     };
 

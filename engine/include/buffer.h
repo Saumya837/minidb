@@ -20,15 +20,15 @@ namespace minidb {
     static constexpr uint32_t BUF_USAGECOUNT_MASK  = 0x7u  << 19;
     
     struct BufferTag{
-        OID specOID;
-        OID dbOID;
-        uint32_t relnumber;
-        uint32_t blockNum;
-        uint32_t forkNum;
+        OID spcOID; // tablespace Id
+        OID dbOID; // database Id
+        uint32_t relnumber; // relational number
+        uint32_t blockNum; // block number
+        uint32_t forkNum; //fork Number
 
         bool operator==(const BufferTag& other) const {
             return 
-            specOID == other.specOID && dbOID == other.dbOID && 
+            spcOID == other.spcOID && dbOID == other.dbOID && 
             relnumber == other.relnumber && blockNum == other.blockNum && 
             forkNum == other.forkNum;
         }
@@ -64,14 +64,16 @@ namespace minidb {
             BufferDesc* buffer_descriptors;
             uint32_t clock_hand_;
             int free_list_head_;
-            PageStore* pagestore;
+            std::unordered_map<uint32_t, PageStore*> pagestore_map_;
             std::unordered_map<BufferTag, int, BufferTagHash> buffer_map; // maps BufferTag to buffer index
             void flush_page(int buf_id);  // write dirty page to disk, called by eviction
+            int clock_sweep();
 
         public:
-            BufferPoolManager(uint32_t pool_size, PageStore* pagestore);
+            BufferPoolManager(uint32_t pool_size);
             ~BufferPoolManager();
-            Page* fetch_page(const BufferTag& tag);
+            void register_relation(uint32_t relnumber, PageStore* store);
+            int fetch_page(const BufferTag& tag);
             void unpin_page(const BufferTag& tag, bool is_dirty);
             void mark_dirty(int buf_id);
     };

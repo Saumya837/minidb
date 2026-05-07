@@ -53,6 +53,8 @@ namespace minidb {
                     + path_ + " at page number: " + std::to_string(page_no));
     }
 
+   
+
     uint32_t FilePageStore::allocate_page(){
         //TODO: create a new empty page
         Page next = Page();
@@ -78,5 +80,7 @@ namespace minidb {
                 throw std::runtime_error("Failed to flush page store file:" + path_);
         }
     }
+
+
 };
  // namespace minidb

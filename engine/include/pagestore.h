@@ -1,6 +1,7 @@
 #pragma once
 #include "page.h"
 #include <string>
+#include <unordered_map>
 
 namespace minidb{
     class PageStore{

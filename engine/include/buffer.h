@@ -58,9 +58,9 @@ namespace minidb {
         }
     };
 
-    class BufferPoolManager {
+    class BufferManager {
             uint32_t pool_size_;// number of pages in buffer pool 
-            Page* page; 
+            Page*  bufferPool; 
             BufferDesc* buffer_descriptors;
             uint32_t clock_hand_;
             int free_list_head_;
@@ -70,8 +70,8 @@ namespace minidb {
             int clock_sweep();
 
         public:
-            BufferPoolManager(uint32_t pool_size);
-            ~BufferPoolManager();
+            BufferManager(uint32_t pool_size);
+            ~BufferManager();
             void register_relation(uint32_t relnumber, PageStore* store);
             int fetch_page(const BufferTag& tag);
             void unpin_page(const BufferTag& tag, bool is_dirty);

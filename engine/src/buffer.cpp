@@ -1,9 +1,9 @@
 #include "buffer.h"
 namespace minidb{
 
-    BufferPoolManager::BufferPoolManager(uint32_t pool_size){
+    BufferManager::BufferManager(uint32_t pool_size){
         pool_size_ = pool_size;
-        page = new Page[pool_size_]; //Created page array as buffer pool frames
+        bufferPool = new Page[pool_size_]; //Created page array as buffer pool frames
         buffer_descriptors = new BufferDesc[pool_size_]; //Created buffer descriptor array to store metadata for each buffer frame
         clock_hand_ = 0;
 
@@ -15,16 +15,47 @@ namespace minidb{
         free_list_head_ = 0;
     }
 
-    BufferPoolManager::~BufferPoolManager(){
-        delete[] page;
+    BufferManager::~BufferManager(){
+        delete[] bufferPool;
         delete[] buffer_descriptors;
     }
 
-    void BufferPoolManager::register_relation(uint32_t relnumber, PageStore* store){
+    void BufferManager::register_relation(uint32_t relnumber, PageStore* store){
         pagestore_map_[relnumber] = store;
     }
 
-    int BufferPoolManager::fetch_page(const BufferTag& tag) {
+    void BufferManager::flush_page(int buf_id){
+        //first 
+        BufferTag& tag= buffer_descriptors[buf_id].tag;
+        PageStore* store = pagestore_map_[tag.relnumber];
+
+        store->write_page(tag.blockNum, bufferPool[buf_id]);
+    }
+
+    int BufferManager::clock_sweep(){
+        uint32_t attempts = 0;
+        while(true){
+            while(attempts <= pool_size_ * 2){
+                uint32_t state = buffer_descriptors[clock_hand_].state.load();
+                uint32_t pin = (state & BUF_REFCOUNT_MASK);
+                uint32_t usage = (state & BUF_USAGECOUNT_MASK);
+
+                if(pin == 0){
+                    if(usage == 0){
+                        int victim = clock_hand_;
+                        clock_hand_ = (clock_hand_ + 1) % pool_size_;
+                        return victim;
+                    }
+                    buffer_descriptors[clock_hand_].state.fetch_sub(1u << BUF_USAGECOUNT_SHIFT);
+                }
+                clock_hand_ = (clock_hand_ + 1) % pool_size_;
+                attempts++;
+            }
+            return -1;
+        }
+    }
+
+    int BufferManager::fetch_page(const BufferTag& tag) {
         // cache hit
         auto it = buffer_map.find(tag);
         if (it != buffer_map.end()) {
@@ -55,7 +86,7 @@ namespace minidb{
 
                 //take slot from the free list
                 PageStore* store = store_it->second;
-                store->read_page(tag.blockNum, page[buf_id]); // read the blocknumber to the page[buf_id]
+                store->read_page(tag.blockNum, bufferPool[buf_id]); // read the blocknumber to the page[buf_id]
 
                 //set the usage and ref count to 1
                 buffer_descriptors[buf_id].tag = tag;
@@ -64,8 +95,34 @@ namespace minidb{
                 buffer_map[tag] = buf_id;
                 return buf_id;
             }
+
             else{
+                int buf_id = clock_sweep();
+                if (buf_id == -1)
+                    throw std::runtime_error("Buffer pool exhausted — all pages pinned.");
+                uint32_t state = buffer_descriptors[buf_id].state.load();
+                if(state & BUF_DIRTY_FLAG)
+                    flush_page(buf_id);
+                
+                //set the usage and ref count to 1
+                auto store_it = pagestore_map_.find(tag.relnumber);
+                if (store_it == pagestore_map_.end()) 
+                    throw std::runtime_error("Relation not registered: " + std::to_string(tag.relnumber));
+
+                //take slot from the free list
+                PageStore* store = store_it->second;
+                store->read_page(tag.blockNum, bufferPool[buf_id]); // read the blocknumber to the page[buf_id]
+
+                buffer_map.erase(buffer_descriptors[buf_id].tag);
+                buffer_descriptors[buf_id].tag = tag;
+                buffer_map[tag] = buf_id;
+
+                //set the usage and ref count to 1
+                buffer_descriptors[buf_id].state.store(1u << BUF_REFCOUNT_SHIFT | 1u << BUF_USAGECOUNT_SHIFT | BUF_VALID_FLAG);
+                return buf_id;
             }
-        }
+        }  
     }
+
+
 }

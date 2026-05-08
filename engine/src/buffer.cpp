@@ -125,6 +125,7 @@ namespace minidb{
                 return buf_id;
             }
         }  
+        
     }
 
     void BufferManager::mark_dirty(int buf_id){

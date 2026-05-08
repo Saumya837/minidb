@@ -76,6 +76,7 @@ namespace minidb {
             int fetch_page(const BufferTag& tag);
             void unpin_page(const BufferTag& tag, bool is_dirty);
             void mark_dirty(int buf_id);
+            Page* get_page(int buf_id);
     };
 
 

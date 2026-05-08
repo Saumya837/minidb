@@ -24,11 +24,14 @@ namespace minidb{
         pagestore_map_[relnumber] = store;
     }
 
+    Page* BufferManager::get_page(int buf_id) {
+        return &bufferPool[buf_id];
+    }
+
     void BufferManager::flush_page(int buf_id){
         //first 
         BufferTag& tag= buffer_descriptors[buf_id].tag;
         PageStore* store = pagestore_map_[tag.relnumber];
-
         store->write_page(tag.blockNum, bufferPool[buf_id]);
     }
 
@@ -124,5 +127,16 @@ namespace minidb{
         }  
     }
 
+    void BufferManager::mark_dirty(int buf_id){
+        buffer_descriptors[buf_id].state.fetch_or(BUF_DIRTY_FLAG);
+    }
 
+    void BufferManager::unpin_page(const BufferTag& tag, bool is_dirty) {
+        int buf_id = buffer_map[tag];
+
+        buffer_descriptors[buf_id].state.fetch_sub(1u <<  BUF_REFCOUNT_SHIFT);
+        if(is_dirty){
+            BufferManager::mark_dirty(buf_id);
+        }
+    }
 }

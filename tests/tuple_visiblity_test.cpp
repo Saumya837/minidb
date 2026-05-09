@@ -25,7 +25,7 @@ void test_dirty_read_not_visible(){
     Snapshot snap_b = tm.get_snapshot(second_xid, 0);
 
     // TODO: assert tuple is NOT visible to B
-    assert(tuple_is_visible(hdr, snap_b) == false);
+    assert(tuple_is_visible(hdr, snap_b, tm) == false);
 
     // TODO: commit A
     tm.commit_transaction(first_xid);
@@ -38,7 +38,7 @@ void test_dirty_read_not_visible(){
 
 
     // TODO: assert tuple IS visible to C
-    assert(tuple_is_visible(hdr, snap_c) == true);
+    assert(tuple_is_visible(hdr, snap_c, tm) == true);
 }
 
 void test_same_transaction_delete_not_visible(){
@@ -56,7 +56,7 @@ void test_same_transaction_delete_not_visible(){
 
     // Same command — not visible yet
     Snapshot snap_a = tm.get_snapshot(first_xid, 0);
-    assert(tuple_is_visible(hdr, snap_a) == false);
+    assert(tuple_is_visible(hdr, snap_a, tm) == false);
 
     // Delete in command 2
     hdr.xmax = first_xid;
@@ -65,11 +65,11 @@ void test_same_transaction_delete_not_visible(){
 
     // Command 1 — delete hasn't happened yet — visible
     Snapshot snap_b = tm.get_snapshot(first_xid, 1);
-    assert(tuple_is_visible(hdr, snap_b) == true);
+    assert(tuple_is_visible(hdr, snap_b, tm) == true);
 
     // Command 3 — delete has happened — not visible
     Snapshot snap_c = tm.get_snapshot(first_xid, 3);
-    assert(tuple_is_visible(hdr, snap_c) == false);
+    assert(tuple_is_visible(hdr, snap_c, tm) == false);
 }
 
 void test_transaction_abort_not_visible(){
@@ -87,12 +87,11 @@ void test_transaction_abort_not_visible(){
 
     //Transaction is aborted due to some issues
     tm.abort_transaction(first_xid);
-    hdr_1.infomask =  hdr_1.infomask & HEAP_XMIN_INVALID;
 
     TransactionId second_xid = tm.begin();
     Snapshot snap_b = tm.get_snapshot(second_xid, 0);
 
-    assert(tuple_is_visible(hdr_1, snap_b) == false);
+    assert(tuple_is_visible(hdr_1, snap_b, tm) == false);
 
     TupleHeader hdr_2;
     hdr_2.xmin = second_xid;
@@ -103,7 +102,6 @@ void test_transaction_abort_not_visible(){
 
     //second_transaction commited
     tm.commit_transaction(second_xid);
-    hdr_2.infomask = hdr_2.infomask & ~(HEAP_XMIN_IS_SET) | HEAP_XMIN_COMMITTED;
 
     TransactionId third_xid = tm.begin();
     hdr_2.xmax = third_xid;
@@ -115,7 +113,7 @@ void test_transaction_abort_not_visible(){
 
     TransactionId forth_xid = tm.begin();
     Snapshot snap_d = tm.get_snapshot(forth_xid, 0);
-    assert(tuple_is_visible(hdr_2, snap_d) == true);
+    assert(tuple_is_visible(hdr_2, snap_d, tm) == true);
 }
 
 void test_tuple_freeze_visible(){
@@ -130,7 +128,7 @@ void test_tuple_freeze_visible(){
     TransactionId xid = tm.begin();
     Snapshot snap_a = tm.get_snapshot(xid, 0);
 
-    assert(tuple_is_visible(hdr_1, snap_a) == true);
+    assert(tuple_is_visible(hdr_1, snap_a, tm) == true);
 }
 
 void test_committed_delete_not_visible(){
@@ -157,7 +155,7 @@ void test_committed_delete_not_visible(){
     TransactionId c_xid = tm.begin();
     Snapshot snap_c = tm.get_snapshot(c_xid, 0);
 
-    assert(tuple_is_visible(hdr_1, snap_c) == false);
+    assert(tuple_is_visible(hdr_1, snap_c, tm) == false);
 }
 
 

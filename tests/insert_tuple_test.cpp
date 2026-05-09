@@ -52,8 +52,8 @@ void insert_test(){
         recovered_hdr->infomask = recovered_hdr->infomask & (~HEAP_XMIN_IS_SET) | HEAP_XMIN_COMMITTED;
     
     Snapshot snap_c = tm.get_snapshot(third_xid, 0); // just to update transaction status
-    assert(tuple_is_visible(*recovered_hdr, snap_b) == false);
-    assert(tuple_is_visible(*recovered_hdr, snap_c) == true);
+    assert(tuple_is_visible(*recovered_hdr, snap_b, tm) == false);
+    assert(tuple_is_visible(*recovered_hdr, snap_c, tm) == true);
 
     uint32_t* recovered_value = reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(out_data + sizeof(TupleHeader)));
     assert(*recovered_value == 42); 

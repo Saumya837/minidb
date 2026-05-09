@@ -27,8 +27,7 @@ namespace minidb {
         uint32_t forkNum; //fork Number
 
         bool operator==(const BufferTag& other) const {
-            return 
-            spcOID == other.spcOID && dbOID == other.dbOID && 
+            return spcOID == other.spcOID && dbOID == other.dbOID && 
             relnumber == other.relnumber && blockNum == other.blockNum && 
             forkNum == other.forkNum;
         }

@@ -3,6 +3,7 @@
 #include <unordered_set>
 #include "snapshot.h"
 #include "types.h"
+#include "transaction_manager.h"
 #include <cstdint>
 #include <cassert>
 namespace minidb {
@@ -29,6 +30,6 @@ namespace minidb {
 
     static_assert(sizeof(TupleHeader) == 16, "TupleHeader size must be 16 bytes");
 
-    bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap);
+    bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap, TransactionManager& tm);
 
 } // namespace minidb

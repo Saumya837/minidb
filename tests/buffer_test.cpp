@@ -68,6 +68,7 @@ void test_buffer_pool_acceptance() {
 }
 
 int main() {
+    test_buffer_pool_acceptance();
     std::cout << "buffer_pool_test: ok\n";
     return 0;
 }

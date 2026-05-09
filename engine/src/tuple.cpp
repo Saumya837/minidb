@@ -1,10 +1,11 @@
 #include "types.h"
 #include "snapshot.h"
 #include "tuple.h"
+#include "transaction_manager.h"
 #include <iostream>
 
 namespace minidb {
-    bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap){
+    bool tuple_is_visible(const TupleHeader& hdr, const Snapshot& snap, TransactionManager& tm){
 
         //1. invalid tuple
         if (hdr.xmin == XID_INVALID){
@@ -28,10 +29,15 @@ namespace minidb {
                     
                 //5. Inserted by a active transaction - not committed - not visible
                 else if(snap.active_xids.count(hdr.xmin) != 0) return false;
+
+                //6. Inseted by an invalid transaction
+                else if (hdr.infomask & HEAP_XMIN_INVALID)
+                    return false;
                 
-                    
                 //6. Inseted by an older transaction but invalid
-                else if (hdr.infomask == HEAP_NONE) return false;
+                else if ((hdr.infomask & HEAP_XMIN_IS_SET) && (tm.get_transaction_status(hdr.xmin) == XactStatus::Aborted)){
+                    return false;
+                } 
         } 
 
         
@@ -40,7 +46,7 @@ namespace minidb {
         //7. Not deleted by anybody, Xmax not set 
         if(hdr.xmax == XID_INVALID) return true;
 
-        //8. Not deleted by anybody, Xmax not set 
+        //8. deleted by same transaction, Xmax not set 
         if(hdr.xmax == snap.current_xid){
             uint16_t cmax = hdr.infomask & HEAP_XMAX_IS_SET ? hdr.cmax : 0; 
             if(cmax > snap.current_cid) return true;
@@ -59,8 +65,6 @@ namespace minidb {
         //deleted by an active transaction
         if(snap.active_xids.count(hdr.xmax) != 0)
             return true;
-
-        // should never reach here
-        assert(false && "tuple_is_visible: unhandled case");    
+        return false; 
     }
 };

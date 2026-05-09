@@ -23,21 +23,23 @@ namespace minidb {
     }
 
     void FilePageStore::read_page(uint32_t page_no, Page& page){
-        // TODO: bounds check — page_no must be < num_pages_
+        // bounds check — page_no must be < num_pages_
         if(page_no >= num_pages_)
             throw std::out_of_range("Page number out of range: " + std::to_string(page_no));
+
+
+        
         off_t offset = page_no * PAGE_SIZE;
 
-        // TODO: pread(fd_, page.data, PAGE_SIZE, offset)
+
+
+        // pread(fd_, page.data, PAGE_SIZE, offset)
         ssize_t bytes_read = pread(fd_, page.data, PAGE_SIZE, offset);
 
-        // TODO: check return value — pread returns bytes read
+        // check return value — pread returns bytes read
         if(bytes_read != PAGE_SIZE)
             throw std::runtime_error("Failed to read full page from file:" 
                     + path_ + " at page number: " + std::to_string(page_no));
-
-        printf("bytes_read = %zd\n", bytes_read);
-
     }
 
     void FilePageStore::write_page(uint32_t page_no, const Page& page){

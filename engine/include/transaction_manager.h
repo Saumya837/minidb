@@ -15,11 +15,12 @@ namespace minidb{
 
     class TransactionManager{
         private :
-            TransactionId next_xid_;                                // XID counter
+            std::atomic<TransactionId> next_xid_;   // XID counter
+            std::mutex latch_;                      //mutual-ex lock       
             std::unordered_set<TransactionId> active_xids_;              // Set od active transactions
             std::unordered_map<TransactionId, XactStatus> xact_status_;  // Transaction status map
         public :
-            TransactionManager() : next_xid_(3) {}
+            TransactionManager() : next_xid_(3) {};
             TransactionId begin();
             void commit_transaction(TransactionId xid);
             void abort_transaction(TransactionId xid);

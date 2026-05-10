@@ -120,7 +120,7 @@ make
 │                 Disk                    │
 └─────────────────────────────────────────┘
 ```
-## satus 
+## Status 
 
 - Actively under Devlopment
 

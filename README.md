@@ -85,41 +85,44 @@ make
 
 ```
 ┌─────────────────────────────────────────┐
-│           Transaction Manager            │
-│   XID allocation · snapshots · mutex     │
+│           Transaction Manager           │
+│   XID allocation · snapshots · mutex    │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│             Lock Manager                 │
-│   row-level locks · deadlock detection   │
-│              (in progress)               │
+│             Lock Manager                │
+│   row-level locks · deadlock detection  │
+│              (in progress)              │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│            Buffer Manager                │
-│   clock sweep · pin counts · dirty       │
+│            Buffer Manager               │
+│   clock sweep · pin counts · dirty      │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│          PageStore Interface             │
-│         FilePageStore (pread/pwrite/fsync)│
+│          PageStore Interface            │
+│    FilePageStore (pread/pwrite/fsync)   │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│         Tuple + Infomask Layer           │
-│  xmin · xmax · cmin/cmax · hint bits     │
-│       tuple_is_visible() · MVCC          │
+│         Tuple + Infomask Layer          │
+│  xmin · xmax · cmin/cmax · hint bits    │
+│       tuple_is_visible() · MVCC         │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│          Slotted Page Layout             │
-│  PageHeader · LinePointers · 8KB pages   │
+│          Slotted Page Layout            │
+│  PageHeader · LinePointers · 8KB pages  │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│                 Disk                     │
+│                 Disk                    │
 └─────────────────────────────────────────┘
 ```
+## satus 
+
+- Actively under Devlopment
 
 ---
 

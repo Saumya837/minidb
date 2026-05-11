@@ -120,7 +120,7 @@ make
 │                 Disk                    │
 └─────────────────────────────────────────┘
 ```
-## Status 
+## status 
 
 - Actively under Devlopment
 

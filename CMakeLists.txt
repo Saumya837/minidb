@@ -24,6 +24,7 @@ add_library(minidb_engine STATIC
     engine/src/buffer.cpp 
     engine/src/free_space_map.cpp
     engine/src/visibility_map.cpp
+    engine/src/lock_manager.cpp
 )
 
 add_executable(validator
@@ -50,9 +51,13 @@ add_executable(insert_tuple_test
     tests/insert_tuple_test.cpp        
 )
 
+add_executable(lock_manager_test
+     tests/lock_manager_test.cpp)
+
 
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)
 target_link_libraries(tuple_visiblity_test minidb_engine pq)
 target_link_libraries(buffer_test minidb_engine pq)
 target_link_libraries(insert_tuple_test minidb_engine pq)
+target_link_libraries(lock_manager_test minidb_engine pq)

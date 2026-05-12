@@ -18,8 +18,6 @@ namespace minidb {
         Tuple    = 2,  // locking a specific tuple
     };
 
-
-
     struct LockTag {
         LockTagType type;
         uint32_t    relnumber;   // which relation
@@ -36,15 +34,26 @@ namespace minidb {
 
     enum class LockMode : uint8_t {
         None      = 0,
-        Share     = 1,  // SELECT FOR SHARE — multiple allowed
-        Update    = 2,  // SELECT FOR UPDATE — blocks other updaters
-        Exclusive = 3,  // UPDATE/DELETE — blocks everyone
+        Share     = 1,  
+        Update    = 2,  
+        Exclusive = 3, 
+    };
+
+    struct LockRequest 
+    {
+        TransactionId xid;
+        LockMode mode;
+        LockWaitOper wait_oper;
+        bool granted;
+        std::unique_ptr<std::condition_variable> cv;
+        std::unique_ptr<std::mutex> cv_mutex;
+
+        LockRequest(TransactionId xid, LockMode mode, LockWaitOper oper)
+            : xid(xid), mode(mode), wait_oper(oper), granted(false),
+            cv(std::make_unique<std::condition_variable>()),
+            cv_mutex(std::make_unique<std::mutex>()) {}
     };
 
 
 
-// TODO: LockMode — shared, exclusive, update
-// TODO: LockRequest — who is waiting for what
-// TODO: LockManager — lock table, wait queues, deadlock detection
-
-} // namespace minidb
+} 

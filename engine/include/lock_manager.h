@@ -1,6 +1,8 @@
 #pragma once
 #include "types.h"
 #include "snapshot.h"
+#include "list"
+#include "unordered_map"
 
 namespace minidb {
 
@@ -54,6 +56,41 @@ namespace minidb {
             cv_mutex(std::make_unique<std::mutex>()) {}
     };
 
+    struct LockEntry{
+        LockTag Tag;
+        uint8_t grantMask;
+        uint8_t waitMask;
+        std::list<LockRequest> granted;
+        std::list<LockRequest> requested;
+    };
+
+   struct LockTagHash {
+    size_t operator()(const LockTag& tag) const {
+        size_t h = std::hash<uint8_t>{}(static_cast<uint8_t>(tag.type));
+        h ^= std::hash<uint32_t>{}(tag.relnumber) + 0x9e3779b9 + (h<<6) + (h>>2);
+        h ^= std::hash<uint32_t>{}(tag.block_num) + 0x9e3779b9 + (h<<6) + (h>>2);
+        h ^= std::hash<uint16_t>{}(tag.offset)    + 0x9e3779b9 + (h<<6) + (h>>2);
+        return h;
+    }
+};
 
 
+    class LockManager {
+        std::mutex latch_;
+        std::unordered_map<LockTag, LockEntry, LockTagHash> lock_table_;
+        std::unordered_map<TransactionId, std::vector<TransactionId>> wait_for_graph_;
+
+    public:
+        // acquire lock — grant or wait
+        bool acquire_lock(TransactionId xid, const LockTag& tag, LockMode mode);
+        
+        // release all locks held by xid
+        void release_lock(TransactionId xid, const LockTag& tag);
+        void release_all_locks(TransactionId xid);
+
+    private:
+        bool is_compatible(uint8_t grant_mask, LockMode mode);
+        bool detect_deadlock(TransactionId xid);
+        void wake_waiters(LockEntry& entry);
+    };
 } 

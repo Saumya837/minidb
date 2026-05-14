@@ -35,10 +35,10 @@ namespace minidb {
     };
 
     enum class LockMode : uint8_t {
-        None      = 0,
-        Share     = 1,  
-        Update    = 2,  
-        Exclusive = 3, 
+        AccessShare = 0,
+        RowShare    = 1,
+        RowExclusive = 2,
+        ShareUpdateExclusive = 3
     };
 
     struct LockRequest 

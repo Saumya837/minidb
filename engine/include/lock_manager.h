@@ -38,7 +38,11 @@ namespace minidb {
         AccessShare = 0,
         RowShare    = 1,
         RowExclusive = 2,
-        ShareUpdateExclusive = 3
+        ShareUpdateExclusive = 3,
+        Share  = 4,
+        ShareRowExclusive = 5,
+        Exclusive = 6,
+        AccessExclusive = 7
     };
 
     struct LockRequest 

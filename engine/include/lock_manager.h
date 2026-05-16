@@ -96,5 +96,8 @@ namespace minidb {
         bool is_compatible(uint8_t grant_mask, LockMode mode);
         bool detect_deadlock(TransactionId xid);
         void wake_waiters(LockEntry& entry);
+        bool detect_cycle(TransactionId xid,
+             std::unordered_set<TransactionId>& visited,
+             std::unordered_set<TransactionId>& in_stack);
     };
 } 

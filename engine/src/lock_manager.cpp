@@ -97,4 +97,46 @@ namespace minidb{
                 return true;
             } 
         }
+
+        void LockManager::release_lock(TransactionId xid, const LockTag& tag){
+            // 1. lock latch_
+            std::unique_lock<std::mutex> lock(latch_);
+
+            // 2. find LockEntry for tag
+            auto& entry = lock_table_[tag];
+
+            // 3. remove xid from granted list
+            entry.granted.remove_if([xid](const LockRequest& r) { return r.xid == xid; });
+
+            // 4. recalculate grant_mask from remaining granted list
+            entry.grantMask = 0;
+            for(auto& req: entry.granted){
+                entry.grantMask |= (1u << static_cast<uint8_t>(req.mode));
+            }
+
+            // 5. remove xid from wait_for_graph_
+            wait_for_graph_.erase(xid);
+
+            // 6. wake up waiters — call wake_waiters(entry)
+            wake_waiters(entry);
+        }
+
+        void LockManager::wake_waiters(LockEntry& entry) {
+            for (auto it = entry.requested.begin(); it != entry.requested.end(); ) {
+                if (is_compatible(entry.grantMask, it->mode)) {
+                    // 3. mark as granted
+                    it->granted = true;
+                    // 4. wake it up
+                    it->cv->notify_one();
+                    // 5. update grant_mask
+                    entry.grantMask |= (1u << static_cast<uint8_t>(it->mode));
+                    // 6. move from waiting to granted
+                    entry.granted.push_back(std::move(*it));
+                    it = entry.requested.erase(it);
+                } 
+                else 
+                    ++it;
+            }
+        }
+       
 };

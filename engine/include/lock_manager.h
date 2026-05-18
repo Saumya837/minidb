@@ -99,5 +99,6 @@ namespace minidb {
         bool detect_cycle(TransactionId xid,
              std::unordered_set<TransactionId>& visited,
              std::unordered_set<TransactionId>& in_stack);
+        void release_lock_internals(TransactionId xid, LockEntry& entry);
     };
 } 

@@ -2,6 +2,7 @@
 #include <stack>
 
 namespace minidb{
+
     
     bool LockManager::is_compatible(uint8_t grant_mask, LockMode mode) {
 
@@ -84,6 +85,7 @@ namespace minidb{
                     // clean up wait-for graph
                     wait_for_graph_.erase(xid);
                     throw std::runtime_error("Deadlock detected — transaction " + std::to_string(xid) + " aborted");
+                    release_all_locks(xid);
                 }
 
                 // after deadlock check, before "woken up" comment
@@ -98,14 +100,8 @@ namespace minidb{
             } 
         }
 
-        void LockManager::release_lock(TransactionId xid, const LockTag& tag){
-            // 1. lock latch_
-            std::unique_lock<std::mutex> lock(latch_);
+        void LockManager::release_lock_internals(TransactionId xid, LockEntry& entry){
 
-            // 2. find LockEntry for tag
-            auto& entry = lock_table_[tag];
-
-            // 3. remove xid from granted list
             entry.granted.remove_if([xid](const LockRequest& r) { return r.xid == xid; });
 
             // 4. recalculate grant_mask from remaining granted list
@@ -114,11 +110,16 @@ namespace minidb{
                 entry.grantMask |= (1u << static_cast<uint8_t>(req.mode));
             }
 
-            // 5. remove xid from wait_for_graph_
-            wait_for_graph_.erase(xid);
-
-            // 6. wake up waiters — call wake_waiters(entry)
+            // 5. wake up waiters — call wake_waiters(entry)
             wake_waiters(entry);
+        }
+
+        void LockManager::release_lock(TransactionId xid, const LockTag& tag){
+            // 1. lock latch_
+            std::unique_lock<std::mutex> lock(latch_);
+            // 2. find LockEntry for tag
+            auto& entry = lock_table_[tag];
+            release_lock_internals(xid , entry);
         }
 
         void LockManager::wake_waiters(LockEntry& entry) {
@@ -137,6 +138,16 @@ namespace minidb{
                 else 
                     ++it;
             }
+        }
+
+        void LockManager::release_all_locks(TransactionId xid){
+            std::unique_lock<std::mutex> lock(latch_);
+
+            for(auto& [tag, entry]: lock_table_){
+                //call the release_lock
+                release_lock_internals(xid, entry);
+            }
+            wait_for_graph_.erase(xid);
         }
        
 };

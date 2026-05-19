@@ -21,18 +21,20 @@ namespace minidb{
         return (grant_mask & incompat[idx]) == 0;
     }
 
-    bool LockManager::detect_cycle(TransactionId xid, std::unordered_set<TransactionId>& visited, std::unordered_set<TransactionId>& in_stack){
+    bool LockManager::detect_cycle(TransactionId xid, std::unordered_set<TransactionId>& visited, 
+        std::unordered_set<TransactionId>& in_stack, std::unordered_map<TransactionId, std::vector<TransactionId>> graph){
+
         visited.insert(xid);
         in_stack.insert(xid);
-        auto it = wait_for_graph_.find(xid);
+        auto it = graph.find(xid);
+
         if (it != wait_for_graph_.end()) {
             for (TransactionId neighbor : it->second) {
                 if (visited.count(neighbor) == 0) {
-                    if (detect_cycle(neighbor, visited, in_stack))
+                    if (detect_cycle(neighbor, visited, in_stack, graph))
                         return true;
-                } else if (in_stack.count(neighbor) > 0) {
+                } else if (in_stack.count(neighbor) > 0) 
                     return true; // cycle found
-                }
             }
         }
 
@@ -41,9 +43,18 @@ namespace minidb{
     }
 
     bool LockManager::detect_deadlock(TransactionId xid){
+        std::unordered_map<TransactionId, std::vector<TransactionId>> graph;
+        for (auto& [tag, entry] : lock_table_) {
+            for (auto& waiter : entry.requested) {
+                for (auto& holder : entry.granted) {
+                    graph[waiter.xid].push_back(holder.xid);
+                }
+            }
+        }
+
         std::unordered_set<TransactionId> visited;
         std::unordered_set<TransactionId> in_stack;
-        return detect_cycle(xid, visited, in_stack);
+        return detect_cycle(xid, visited, in_stack, graph);
     }
 
     bool LockManager::acquire_lock(TransactionId xid, const LockTag& tag, LockMode mode){
@@ -59,7 +70,7 @@ namespace minidb{
             if(is_compatible(entry.grantMask, mode)){
 
                 // - add xid to granted list
-                entry.granted.push_back(LockRequest(xid, mode, LockWaitOper::None));
+                entry.granted.emplace_back(xid, mode, LockWaitOper::None);
 
                 // - update grant_mask
                 entry.grantMask |= (1u << static_cast<uint8_t>(mode));
@@ -69,7 +80,7 @@ namespace minidb{
             }
             else{
                     // - add xid to waiting list
-                    entry.requested.push_back(LockRequest(xid, mode, LockWaitOper::Lock));
+                    entry.requested.emplace_back(xid, mode, LockWaitOper::Lock);
 
                     // - update wait_mask
                     entry.waitMask |= (1u << static_cast<uint8_t>(mode));
@@ -81,16 +92,21 @@ namespace minidb{
 
                 if(detect_deadlock(xid)){
                     entry.requested.remove_if([xid](const LockRequest& r){ return r.xid == xid; });
-                    entry.waitMask &= (1u << static_cast<uint8_t>(mode));
+                    entry.waitMask &= ~(1u << static_cast<uint8_t>(mode));
                     // clean up wait-for graph
                     wait_for_graph_.erase(xid);
-                    throw std::runtime_error("Deadlock detected — transaction " + std::to_string(xid) + " aborted");
                     release_all_locks(xid);
+                    throw std::runtime_error("Deadlock detected — transaction " + std::to_string(xid) + " aborted");
                 }
 
                 // after deadlock check, before "woken up" comment
                 auto& req = entry.requested.back();
-                req.cv->wait(lock, [&req]{ return req.granted; });
+                auto* cv_ptr = req.cv.get(); // capture pointer before potential move
+                cv_ptr->wait(lock, [&entry, xid]{
+                    for (auto& r : entry.granted)
+                        if (r.xid == xid) return true;
+                    return false;
+                });
 
                 // woken up — lock granted
                 entry.grantMask |= (1u << static_cast<uint8_t>(mode));
@@ -125,14 +141,12 @@ namespace minidb{
         void LockManager::wake_waiters(LockEntry& entry) {
             for (auto it = entry.requested.begin(); it != entry.requested.end(); ) {
                 if (is_compatible(entry.grantMask, it->mode)) {
-                    // 3. mark as granted
-                    it->granted = true;
-                    // 4. wake it up
+                    // 1. wake it up
                     it->cv->notify_one();
-                    // 5. update grant_mask
+                    // 2. update grant_mask
                     entry.grantMask |= (1u << static_cast<uint8_t>(it->mode));
-                    // 6. move from waiting to granted
-                    entry.granted.push_back(std::move(*it));
+                    // 3. move from waiting to granted
+                    entry.granted.emplace_back(std::move(*it));
                     it = entry.requested.erase(it);
                 } 
                 else 

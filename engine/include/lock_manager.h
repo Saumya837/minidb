@@ -1,8 +1,9 @@
 #pragma once
 #include "types.h"
 #include "snapshot.h"
-#include "list"
-#include "unordered_map"
+#include <list>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace minidb {
 
@@ -45,25 +46,26 @@ namespace minidb {
         AccessExclusive = 7
     };
 
+    static_assert(static_cast<uint8_t>(LockMode::AccessExclusive) < 8,
+              "LockMode exceeds bitmask capacity — upgrade grantMask to uint16_t");
+
     struct LockRequest 
     {
         TransactionId xid;
         LockMode mode;
         LockWaitOper wait_oper;
-        bool granted;
         std::unique_ptr<std::condition_variable> cv;
-        std::unique_ptr<std::mutex> cv_mutex;
 
         LockRequest(TransactionId xid, LockMode mode, LockWaitOper oper)
-            : xid(xid), mode(mode), wait_oper(oper), granted(false),
-            cv(std::make_unique<std::condition_variable>()),
-            cv_mutex(std::make_unique<std::mutex>()) {}
+            : xid(xid), mode(mode), wait_oper(oper),
+            cv(std::make_unique<std::condition_variable>()) {}
     };
 
     struct LockEntry{
         LockTag Tag;
-        uint8_t grantMask;
-        uint8_t waitMask;
+        uint8_t grantMask = 0;
+        uint8_t waitMask = 0;
+        
         std::list<LockRequest> granted;
         std::list<LockRequest> requested;
     };
@@ -97,8 +99,8 @@ namespace minidb {
         bool detect_deadlock(TransactionId xid);
         void wake_waiters(LockEntry& entry);
         bool detect_cycle(TransactionId xid,
-             std::unordered_set<TransactionId>& visited,
-             std::unordered_set<TransactionId>& in_stack);
+             std::unordered_set<TransactionId>& visited, std::unordered_set<TransactionId>& in_stack,
+              std::unordered_map<TransactionId, std::vector<TransactionId>> graph);
         void release_lock_internals(TransactionId xid, LockEntry& entry);
     };
 } 

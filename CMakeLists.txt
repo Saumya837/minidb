@@ -11,6 +11,8 @@ set(PG_LIB_DIR     "/opt/homebrew/opt/postgresql@15/lib")
 include_directories(
     engine/include
     validator/include
+    server/include
+    session/include
     ${PG_INCLUDE_DIR}
 )
 
@@ -25,6 +27,10 @@ add_library(minidb_engine STATIC
     engine/src/free_space_map.cpp
     engine/src/visibility_map.cpp
     engine/src/lock_manager.cpp
+    server/src/server.cpp
+    session/src/session_manager.cpp
+    session/src/session.cpp
+    session/src/pg_stat_activity.cpp
 )
 
 add_executable(validator

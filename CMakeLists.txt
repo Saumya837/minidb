@@ -67,3 +67,6 @@ target_link_libraries(tuple_visiblity_test minidb_engine pq)
 target_link_libraries(buffer_test minidb_engine pq)
 target_link_libraries(insert_tuple_test minidb_engine pq)
 target_link_libraries(lock_manager_test minidb_engine pq)
+
+
+

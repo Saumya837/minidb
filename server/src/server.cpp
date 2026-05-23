@@ -1,26 +1,74 @@
 #include "server.h"
 #include <arpa/inet.h>
+#include <unistd.h>
 
-uint32_t create_socket(){
-    uint32_t server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1){
-              throw std::runtime_error("Failed to create socket: " + std::string(strerror(errno))); 
+
+namespace minidb {
+        
+    Server server_init(const ServerConfig& config) {
+        Server server;
+        server.config = config;
+        server.server_fd = create_socket();
+        if (!bind_socket(server.server_fd, config.host, config.port)) {
+            throw std::runtime_error("Failed to bind socket");
+        }
+        start_listening(server.server_fd, config.backlog);
+        return server;
     }
-    return server_fd;
-}
 
-bool bind_socket(uint32_t server_fd, const std::string& host, uint32_t port){
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
+    void server_run(Server& server) {
+        while(true){
+            Connection conn = accept_connection(server.server_fd);
+            fork_backend(conn);
+        }
+    }
 
-    // Convert host string to binary IP
-    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
-        return false;   // invalid IP string
+    void server_shutdown(Server& server) {
+        if(server.server_fd >= 0){
+            close(server.server_fd);
+            server.server_fd = -1;
+        }
+    }
 
-    if (bind(server_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
-        return false;
+    int create_socket(){
+        int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_fd == -1){
+            throw std::runtime_error("Failed to create socket: " + std::string(strerror(errno))); 
+        }
+        return server_fd;
+    }
 
-    return true;
+    bool bind_socket(int server_fd, const std::string& host, uint32_t port){
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+
+        if (host.empty() || host == "0.0.0.0")
+            addr.sin_addr.s_addr = INADDR_ANY;
+        // Convert host string to binary IP
+        else if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
+            return false;   // invalid IP string
+
+        if (bind(server_fd, (sockaddr*)&addr, sizeof(addr)) < 0)
+            throw std::runtime_error("bind failed: " + std::string(strerror(errno)));
+
+        return true;
+    }
+
+    bool start_listening(int server_fd, uint32_t backlog){
+        if(listen(server_fd, backlog) < 0)
+            throw std::runtime_error("listen failed:" + std::string(std::strerror(errno)));
+        return true;
+    }
+
+    Connection accept_connection(int server_fd){
+        Connection conn{};
+        socklen_t addr_len = sizeof(conn.addr);
+        conn.fd = accept(server_fd, (sockaddr*)&conn.addr, &addr_len);
+        if (conn.fd < 0) {
+            throw std::runtime_error("accep failed: " + std::string(strerror(errno)));
+        }
+        return conn;
+    }
 }
  

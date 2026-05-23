@@ -17,7 +17,6 @@ namespace minidb {
         uint32_t fd;
         pid_t backend_pid;
         struct sockaddr_in addr;
-
     };
 
     struct Server{
@@ -25,7 +24,7 @@ namespace minidb {
         ServerConfig config;
     };
 
-    uint32_t create_socket();
+    int create_socket();
     bool bind_socket(uint32_t server_fd, const std::string& host, uint32_t port);
     bool start_listening(uint32_t server_fd, uint32_t backlog);
     Connection accept_connection(uint32_t server_fd);
@@ -34,5 +33,6 @@ namespace minidb {
     Server server_init(const ServerConfig& config);
     void server_run(Server& server);
     void server_shutdown(Server& server);
+
 }
 

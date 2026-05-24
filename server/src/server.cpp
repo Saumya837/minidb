@@ -1,6 +1,7 @@
 #include "server.h"
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <iostream>
 
 
 namespace minidb {
@@ -69,6 +70,32 @@ namespace minidb {
             throw std::runtime_error("accep failed: " + std::string(strerror(errno)));
         }
         return conn;
+    }
+
+    pid_t fork_backend(const Connection& conn) {
+        pid_t pid = fork();
+        if (pid < 0)
+            throw std::runtime_error("fork failed: " + std::string(strerror(errno)));
+        
+        if (pid == 0) {
+            // child process — handle client
+            // handle connection, read queries, execute them
+            char buf[1024];
+            ssize_t bytes= recv(conn.fd, buf, sizeof(buf) - 1, 0);
+
+            if(bytes > 0){
+                buf[bytes] = '\0';
+                // -- Future Integration: parse query and execute
+                std::cout<< "Recived Query: " << buf << std::endl;
+            }
+            
+            close(conn.fd);
+            exit(0);
+        }
+        
+        // parent process — close client fd, return child pid
+        close(conn.fd);
+        return pid;
     }
 }
  

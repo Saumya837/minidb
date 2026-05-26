@@ -26,12 +26,8 @@ namespace minidb {
         // bounds check — page_no must be < num_pages_
         if(page_no >= num_pages_)
             throw std::out_of_range("Page number out of range: " + std::to_string(page_no));
-
-
         
         off_t offset = page_no * PAGE_SIZE;
-
-
 
         // pread(fd_, page.data, PAGE_SIZE, offset)
         ssize_t bytes_read = pread(fd_, page.data, PAGE_SIZE, offset);

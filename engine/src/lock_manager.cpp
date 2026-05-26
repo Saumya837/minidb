@@ -7,9 +7,9 @@ namespace minidb{
     bool LockManager::is_compatible(uint8_t grant_mask, LockMode mode) {
 
         static const uint8_t incompat[8] = {
-            0b10000000,  // Share
-            0b11000000,  // RowExclusive
-            0b11110000,  // Exclusive 
+            0b10000000,  //AccessShare
+            0b11000000,  //RowExclusive
+            0b11110000,  //Exclusive 
             0b11111000,  //ShareUpdateExclusive
             0b11101100,  //SHARE
             0b11111100,  //ShareRowExclusive 

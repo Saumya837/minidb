@@ -17,6 +17,8 @@ namespace minidb{
         std::string state;  // "idle", "active", "idle in transaction"
     };
 
+    
+
 }
 
 

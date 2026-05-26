@@ -22,7 +22,7 @@ namespace minidb {
     };
 
     struct LockTag {
-        LockTagType type;
+        LockTagType type; // what kind of lock
         uint32_t    relnumber;   // which relation
         uint32_t    block_num;   // which page (0 for relation locks)
         uint16_t    offset;      // which tuple (0 for page/relation locks)

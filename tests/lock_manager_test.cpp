@@ -14,16 +14,44 @@ void access_share_lock_test(){
     tag.block_num = 2;
     tag.offset = 3;
 
-    // acquire Share lock as xid=3
+    // acquire AccessShare lock as xid=3
     bool status_3 = lm.acquire_lock(3, tag, LockMode::AccessShare);
 
-    // TODO: acquire Share lock as xid=4
+    // acquire AccessShare lock as xid=4
     bool status_4 = lm.acquire_lock(4, tag, LockMode::AccessShare);
-
-
-    // TODO: assert both granted — no blocking
     assert(status_3 == true);
     assert(status_4 == true);
+
+    //acquire RowExclusive lock as xid=5 — should allow
+    bool status_5 = lm.acquire_lock(5, tag, LockMode::RowExclusive);
+    assert(status_5 == true);
+    lm.release_lock(5, tag);
+
+    //acquire Exclusive lock as xid = 6 — should allow
+    bool status_6 = lm.acquire_lock(6, tag, LockMode::Exclusive);
+    assert(status_6 == true);
+    lm.release_lock(6, tag);
+
+    //acquire Exclusive lock as xid = 7 — should allow
+    bool status_7 = lm.acquire_lock(7, tag, LockMode::Share);
+    assert(status_7 == true);
+    lm.release_lock(7, tag);
+
+    //acquire Exclusive lock as xid = 8 — should allow
+    bool status_8 = lm.acquire_lock(8, tag, LockMode::ShareRowExclusive);
+    assert(status_8 == true);
+    lm.release_lock(8, tag);
+
+    //acquire ShareRowExclusive lock as xid = 8 — should allow
+    bool status_9 = lm.acquire_lock(9, tag, LockMode::ShareRowExclusive);
+    assert(status_9 == true);
+    lm.release_lock(9, tag);
+
+    //acquire ShareRowExclusive lock as xid = 8 — should allow
+    bool status_10 = lm.acquire_lock(10, tag, LockMode::Exclusive);
+    assert(status_10 == true);
+    lm.release_lock(10, tag);
+
     std::cout << "Share lock test passed\n";
 }
 
@@ -56,6 +84,7 @@ void test_blocking_lock() {
     assert(thread2_granted == true); // now granted
     std::cout << "Blocking test passed\n";
 }
+
 
 int main() {
     access_share_lock_test();

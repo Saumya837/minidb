@@ -7,6 +7,13 @@
 using namespace minidb;
 
 void access_share_lock_test(){
+    /*
+        AccessShare lock only conflcts with AccessExclusiveLock,
+        so we should be able to acquire AccessShare, RowShare, RowExclusive,
+        ShareUpodateExclusive, Share, ShareRowExclusive, Exclusivelocks Without blocking
+        
+        The test will acquire AccessShare lock first, then try to acquire other locks and assert that they are granted immediately without blocking.
+    */
     LockManager lm;
     LockTag tag;
     tag.type = LockTagType::Tuple;
@@ -55,9 +62,16 @@ void access_share_lock_test(){
     std::cout << "Share lock test passed\n";
 }
 
-
-
 void RowShare_lock_test(){
+    /*
+        RowShare lock only conflcts with AccessExclusiveLock, Exclusive
+        so we should be able to acquire AccessShare, RowShare, RowExclusive,
+        ShareUpodateExclusive, Share, ShareRowExclusive, Exclusivelocks Without blocking
+            
+        The test will acquire RowShare lock first,
+        then try to acquire other locks and assert that they are granted immediately without blocking.
+    */
+
     LockManager lm;
     LockTag tag;
     tag.type = LockTagType::Tuple;
@@ -90,6 +104,35 @@ void RowShare_lock_test(){
     lm.release_lock(7, tag);
 
     std::cout << "RowShare lock test passed\n";
+}
+
+void RowExclusiveShare_lock_test()
+{
+
+    /*
+        RowExclusive lock only conflcts with AccessExclusiveLock, Share, ShareRowExclusive, Exclusive
+        so we should be able to acquire AccessShare, RowShare, RowExclusive,
+        ShareUpodateExclusive locks Without blocking
+            
+        The test will acquire RowExclusive lock first, then try to acquire other locks and assert that they are granted immediately without blocking.
+    */
+
+    LockManager lm;
+    LockTag tag;
+    tag.type = LockTagType::Tuple;
+    tag.relnumber = 1;
+    tag.block_num = 2;
+    tag.offset = 3;
+
+    //acquire RowExclusive lock as xid = 4 — should allow
+    bool status_4 = lm.acquire_lock(4, tag, LockMode::RowExclusive);
+
+    //acquire RowExclusive lock as xid = 5 — should allow
+    bool status_5 = lm.acquire_lock(5, tag, LockMode::RowExclusive);
+    assert(status_4 == true);
+    assert(status_5 == true);
+
+    std::cout << "RowExclusiveShare lock test passed\n";
 }
 
 
@@ -127,6 +170,7 @@ void test_blocking_lock() {
 int main() {
     access_share_lock_test();
     RowShare_lock_test();
+    RowExclusiveShare_lock_test();
     test_blocking_lock();
     std::cout << "lock_manager_test: ok\n";
     return 0;

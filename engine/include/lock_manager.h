@@ -36,11 +36,11 @@ namespace minidb {
     };
 
     enum class LockMode : uint8_t {
-        AccessShare = 0,
-        RowShare    = 1,
-        RowExclusive = 2,
-        ShareUpdateExclusive = 3,
-        Share  = 4,
+        AccessShare = 0, // 00000001
+        RowShare    = 1, // 00000010
+        RowExclusive = 2, // 00000100
+        ShareUpdateExclusive = 3, // 00001000
+        Share  = 4, // 00010000
         ShareRowExclusive = 5,
         Exclusive = 6,
         AccessExclusive = 7

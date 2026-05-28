@@ -7,14 +7,14 @@ namespace minidb{
     bool LockManager::is_compatible(uint8_t grant_mask, LockMode mode) {
 
         static const uint8_t incompat[8] = {
-            0b10000000,  //AccessShare
-            0b11000000,  //RowExclusive
-            0b11110000,  //Exclusive 
-            0b11111000,  //ShareUpdateExclusive
-            0b11101100,  //SHARE
-            0b11111100,  //ShareRowExclusive 
-            0b11111110,  //Exclusive
-            0b11111111   //AccessExclusive
+            0b10000000,  //AccessShare        - conflicts with: AE
+            0b11000000,  //RowShare           - conflicts with: E, AE
+            0b11110000,  //RowExclusive       - conflicts with: S, SRE, E, AE
+            0b11111000,  //ShareUpdateExclusive - conflicts with: SUE, S, SRE, E, AE
+            0b11101100,  //Share              - conflicts with: RE, SUE, SRE, E, AE  ← wait
+            0b11111100,  //ShareRowExclusive  - conflicts with: RE, SUE, S, SRE, E, AE
+            0b11111110,  //Exclusive          - conflicts with: RS, RE, SUE, S, SRE, E, AE
+            0b11111111   //AccessExclusive    - conflicts with: all
         };
         
         uint8_t idx = static_cast<uint8_t>(mode);

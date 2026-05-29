@@ -3,7 +3,6 @@
 #include <cassert>
 #include <thread>
 
-
 using namespace minidb;
 
 void access_share_lock_test(){
@@ -12,7 +11,8 @@ void access_share_lock_test(){
         so we should be able to acquire AccessShare, RowShare, RowExclusive,
         ShareUpodateExclusive, Share, ShareRowExclusive, Exclusivelocks Without blocking
         
-        The test will acquire AccessShare lock first, then try to acquire other locks and assert that they are granted immediately without blocking.
+        The test will acquire AccessShare lock first, 
+        then try to acquire other locks and assert that they are granted immediately without blocking.
     */
     LockManager lm;
     LockTag tag;
@@ -108,13 +108,13 @@ void RowShare_lock_test(){
 
 void RowExclusiveShare_lock_test()
 {
-
     /*
         RowExclusive lock only conflcts with AccessExclusiveLock, Share, ShareRowExclusive, Exclusive
         so we should be able to acquire AccessShare, RowShare, RowExclusive,
         ShareUpodateExclusive locks Without blocking
             
-        The test will acquire RowExclusive lock first, then try to acquire other locks and assert that they are granted immediately without blocking.
+        The test will acquire RowExclusive lock first, 
+        then try to acquire other locks and assert that they are granted immediately without blocking.
     */
 
     LockManager lm;

@@ -1,4 +1,5 @@
 #include "lock_manager.h"
+
 #include <stack>
 
 namespace minidb{

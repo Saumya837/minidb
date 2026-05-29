@@ -27,6 +27,7 @@ add_library(minidb_engine STATIC
     engine/src/free_space_map.cpp
     engine/src/visibility_map.cpp
     engine/src/lock_manager.cpp
+    engine/src/thread_manager.cpp
     server/src/server.cpp
     session/src/session_manager.cpp
     session/src/session.cpp

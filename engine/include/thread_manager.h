@@ -13,6 +13,7 @@
 #pragma once 
 #include "types.h"
 #include <thread>
+#include "lock_manager.h"
 
     namespace minidb{
         /*
@@ -61,5 +62,35 @@
         };
 
         class ThreadManager{
+            /*
+                The ThreadManager class is responsible for managing the lifecycle of transaction threads,
+                including their creation, execution, blocking, and termination.
+
+                It maintains a mapping of TransactionId to Thread objects, allowing it to track the state
+                of each transaction and coordinate blocking/wakeup when lock contention occurs.
+
+                Key responsibilities:
+                - run(): Start a new thread for a given transaction ID and function.
+                - wait_until_blocked(): Block the calling thread until the specified transaction is blocked.
+                - wait_until_done(): Block the calling thread until the specified transaction is done.
+                - is_done(): Check if a transaction has completed execution.
+            */ 
+           
+            std::unordered_map<TransactionId, std::unique_ptr<Thread>> threads_;
+
+            //mutex to protect threads_ map and cordinate access to thread state
+            std::mutex latch_;
+
+            // Refrence to lock manager to cordinate status changes when transaction is blocked/unblocked
+            LockManager& lm;
+
+        public:
+            ThreadManager(LockManager& lm);
+
+            void run(TransactionId xid, std::function<void()> func);
+            void wait_until_blocked(TransactionId xid);
+            void wait_until_done(TransactionId xid);
+            bool is_done(TransactionId xid);
         };
 }
+T

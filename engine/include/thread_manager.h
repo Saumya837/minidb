@@ -15,82 +15,82 @@
 #include <thread>
 #include "lock_manager.h"
 
-    namespace minidb{
-        /*
+namespace minidb{
+    /*
             The Class ThreadState is used to represent the state of a transaction,
             during it excution by our engine.
-        */
+    */
 
-        enum class ThreadState{
+    enum class ThreadState{
             Running,
             Blocked,
             Done
-        };
+    };
 
+    /*
+        * Thread — represents a single backend transaction thread.
+        *
+        * Each transaction that enters the engine is assigned a Thread entry.
+        * The ThreadManager uses this to track execution state and coordinate
+        * blocking/wakeup when lock contention occurs.
+        *
+        * Fields:
+        *   xid    — transaction ID, ties this thread to its TransactionManager entry
+        *   state  — current execution state (Running, Blocked, Done)
+        *   handle — OS thread handle for join/detach
+        *   cv     — condition variable used to sleep/wake on lock state changes
+        *   mtx    — mutex paired with cv (required by std::condition_variable)
+        *
+        * Note: cv and mtx are heap-allocated via unique_ptr because
+        * std::condition_variable is neither copyable nor movable.
+        *
+        * PostgreSQL equivalent: PGPROC (src/include/storage/proc.h)
+        * Planned for lock_v1: full PGPROC-style per-backend state tracking.
+    */
+
+    struct Thread{
+        TransactionId xid;
+        ThreadState state;
+        std::thread handle;
+        std::unique_ptr<std::condition_variable>  cv;
+        std::unique_ptr<std::mutex> mtx;
+
+        Thread(TransactionId xid):
+            xid(xid), state(ThreadState::Running),
+            cv(std::make_unique<std::condition_variable>()),
+            mtx(std::make_unique<std::mutex>()){}
+    };
+
+    class ThreadManager{
         /*
-            * Thread — represents a single backend transaction thread.
-            *
-            * Each transaction that enters the engine is assigned a Thread entry.
-            * The ThreadManager uses this to track execution state and coordinate
-            * blocking/wakeup when lock contention occurs.
-            *
-            * Fields:
-            *   xid    — transaction ID, ties this thread to its TransactionManager entry
-            *   state  — current execution state (Running, Blocked, Done)
-            *   handle — OS thread handle for join/detach
-            *   cv     — condition variable used to sleep/wake on lock state changes
-            *   mtx    — mutex paired with cv (required by std::condition_variable)
-            *
-            * Note: cv and mtx are heap-allocated via unique_ptr because
-            * std::condition_variable is neither copyable nor movable.
-            *
-            * PostgreSQL equivalent: PGPROC (src/include/storage/proc.h)
-            * Planned for lock_v1: full PGPROC-style per-backend state tracking.
-        */
+            The ThreadManager class is responsible for managing the lifecycle of transaction threads,
+            including their creation, execution, blocking, and termination.
 
-        struct Thread{
-            TransactionId xid;
-            ThreadState state;
-            std::thread handle;
-            std::unique_ptr<std::condition_variable>  cv;
-            std::unique_ptr<std::mutex> mtx;
+            It maintains a mapping of TransactionId to Thread objects, allowing it to track the state
+            of each transaction and coordinate blocking/wakeup when lock contention occurs.
 
-            Thread(TransactionId xid, std::thread handle):
-                xid(xid), state(ThreadState::Running),
-                handle(std::move(handle)), cv(std::make_unique<std::condition_variable>()),
-                mtx(std::make_unique<std::mutex>()){}
-        };
+            Key responsibilities:
+            - run(): Start a new thread for a given transaction ID and function.
+            - wait_until_blocked(): Block the calling thread until the specified transaction is blocked.
+            - wait_until_done(): Block the calling thread until the specified transaction is done.
+            - is_done(): Check if a transaction has completed execution.
+        */ 
+    private:
 
-        class ThreadManager{
-            /*
-                The ThreadManager class is responsible for managing the lifecycle of transaction threads,
-                including their creation, execution, blocking, and termination.
+        std::unordered_map<TransactionId, std::unique_ptr<Thread>> threads_;
 
-                It maintains a mapping of TransactionId to Thread objects, allowing it to track the state
-                of each transaction and coordinate blocking/wakeup when lock contention occurs.
+        //mutex to protect threads_ map and cordinate access to thread state
+        std::mutex latch_;
 
-                Key responsibilities:
-                - run(): Start a new thread for a given transaction ID and function.
-                - wait_until_blocked(): Block the calling thread until the specified transaction is blocked.
-                - wait_until_done(): Block the calling thread until the specified transaction is done.
-                - is_done(): Check if a transaction has completed execution.
-            */ 
-           
-            std::unordered_map<TransactionId, std::unique_ptr<Thread>> threads_;
+        // Refrence to lock manager to cordinate status changes when transaction is blocked/unblocked
+        LockManager& lm_;
 
-            //mutex to protect threads_ map and cordinate access to thread state
-            std::mutex latch_;
+    public:
+        ThreadManager(LockManager& lm);
 
-            // Refrence to lock manager to cordinate status changes when transaction is blocked/unblocked
-            LockManager& lm;
-
-        public:
-            ThreadManager(LockManager& lm);
-
-            void run(TransactionId xid, std::function<void()> func);
-            void wait_until_blocked(TransactionId xid);
-            void wait_until_done(TransactionId xid);
-            bool is_done(TransactionId xid);
-        };
+        void run(TransactionId xid, std::function<void()> func);
+        void wait_until_blocked(TransactionId xid);
+        void wait_until_done(TransactionId xid);
+        bool is_done(TransactionId xid);
+    };
 }
-T

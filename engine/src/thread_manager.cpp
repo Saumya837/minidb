@@ -21,8 +21,11 @@ namespace minidb{
     }
 
     void ThreadManager::wait_until_blocked(TransactionId xid){
-        //Todo: Block the calling thread until the specified transaction is blocked.
-        std::unique_lock<std::mutex> lock(latch_);
-
+        Thread* t;
+        {
+            std::lock_guard<std::mutex> lock(latch_);  // holds latch_
+            t = threads_[xid].get();
+        }  // lock_guard destructs here — latch_ released
+        t->blocked_future.wait();  // waits WITHOUT holding latch_
     }
 }

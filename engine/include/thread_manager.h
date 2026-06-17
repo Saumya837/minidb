@@ -14,6 +14,8 @@
 #include "types.h"
 #include <thread>
 #include "lock_manager.h"
+#include <future>
+
 
 namespace minidb{
     /*
@@ -54,11 +56,15 @@ namespace minidb{
         std::thread handle;
         std::unique_ptr<std::condition_variable>  cv;
         std::unique_ptr<std::mutex> mtx;
+        std::promise<void> blocked_promise;
+        std::future<void> blocked_future;
+
 
         Thread(TransactionId xid):
             xid(xid), state(ThreadState::Running),
             cv(std::make_unique<std::condition_variable>()),
-            mtx(std::make_unique<std::mutex>()){}
+            mtx(std::make_unique<std::mutex>()),
+            blocked_future(blocked_promise.get_future()){}
     };
 
     class ThreadManager{

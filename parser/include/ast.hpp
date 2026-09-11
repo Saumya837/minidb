@@ -1,3 +1,4 @@
+#pragma once
 #include <concepts>
 #include <string>
 #include <vector>
@@ -5,21 +6,12 @@
 #include <memory>
 
 enum class StatementType {
-    SELECT,
-    INSERT,
-    UPDATE,
-    DELETE,
-    CREATE,
-    ALTER,
-    DROP
+    SELECT, INSERT, UPDATE, DELETE, CREATE,
+    ALTER, DROP
 };
 
 enum class Clauses{
-    FROM,
-    WHERE,
-    GROUP_BY,
-    ORDER_BY,
-    LIMIT
+    FROM, WHERE, GROUP_BY, ORDER_BY, LIMIT
 };
 
 enum class Relations{
@@ -28,19 +20,14 @@ enum class Relations{
 };
 
 enum class ExpressionType {
-    EQUALS,
-    GREATER,
-    SMALLER,
-    GREATER_EQUAL,
-    LESSER_EQUAL,
-    AND, 
-    OR
+    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
+    AND, OR
 };
 
 enum class ValueType{
-    COLUMN,
-    LITERAL
+    COLUMN, LITERAL
 };
+
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType>;
 

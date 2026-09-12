@@ -44,6 +44,7 @@ add_library(minidb_parser STATIC
     parser/src/printer.cpp
 )
 
+
 target_include_directories(minidb_engine PUBLIC parser/include)
 
 add_executable(validator
@@ -59,6 +60,8 @@ add_executable(buffer_test tests/buffer_test.cpp)
 add_executable(insert_tuple_test tests/insert_tuple_test.cpp)
 add_executable(lock_manager_test tests/lock_manager_test.cpp)
 add_executable(parse_test tests/parse_test.cpp)
+add_executable(tokenizer_test parser/src/token.cpp tests/tokenizer_test.cpp
+)
 
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)

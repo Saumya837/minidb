@@ -28,7 +28,6 @@ enum class ValueType{
     COLUMN, LITERAL
 };
 
-
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType>;
 
 

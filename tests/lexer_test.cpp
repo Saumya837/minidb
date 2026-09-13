@@ -1,5 +1,5 @@
 #include "ast.hpp"
-#include "token.hpp"
+#include "lexer.hpp"
 #include <iostream>
 
 int main() {

@@ -301,11 +301,13 @@ first.
 
 ### Reference test queries
 **Verified end-to-end (Query 1 below):**
+```
 Select
 ├─> FROM
 │   └─> TABLE: employees
 ├─> COLUMN: name
 └─> COLUMN: salary
+```
 
 Full pipeline (tokenize → parseStatement → printAST) confirmed via
 `tests/parse_test.cpp`. The hand-built-tree test used to verify

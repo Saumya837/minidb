@@ -59,9 +59,10 @@ add_executable(tuple_visiblity_test tests/tuple_visiblity_test.cpp)
 add_executable(buffer_test tests/buffer_test.cpp)
 add_executable(insert_tuple_test tests/insert_tuple_test.cpp)
 add_executable(lock_manager_test tests/lock_manager_test.cpp)
-add_executable(parse_test tests/parse_test.cpp)
-add_executable(tokenizer_test parser/src/lexer.cpp tests/lexer_test.cpp
-)
+add_executable(ast_test tests/ast_test.cpp)
+add_executable(tokenizer_test parser/src/lexer.cpp tests/lexer_test.cpp)
+add_executable(parse_test tests/parse_test.cpp parser/src/parser.cpp
+    parser/src/lexer.cpp parser/src/printer.cpp)
 
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)

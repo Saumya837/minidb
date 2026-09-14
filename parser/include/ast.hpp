@@ -15,21 +15,19 @@ enum class Clauses{
 };
 
 enum class Relations{
-    TABLE,
-    JOIN 
+    TABLE, JOIN 
 };
 
 enum class ExpressionType {
-    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
-    AND, OR
+    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR
 };
 
 enum class ValueType{
     COLUMN, LITERAL
 };
 
-using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType>;
 
+using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType>;
 
 struct ASTNode {
     ASTTag type;

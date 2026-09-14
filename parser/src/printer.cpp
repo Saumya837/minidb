@@ -68,7 +68,6 @@ void printTree(const ASTNode& node, const std::string& prefix, bool isLast){
     for(size_t i = 0; i<node.children.size(); ++i){
         printTree(*node.children[i], childPrefix, i == node.children.size() -1);
     }
-
 }
 
 void printAST(const ASTNode& root) {
@@ -80,5 +79,4 @@ void printAST(const ASTNode& root) {
     for (size_t i = 0; i<root.children.size(); ++i){
         printTree(*root.children[i], "", i == root.children.size() - 1);
     }
-    
 }

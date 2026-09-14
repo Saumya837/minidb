@@ -290,9 +290,9 @@ first.
 - [x] Full grammar (including `JOIN`, pending implementation)
 - [x] `check()`, `expect()` helpers
 - [x] `parseStatement()` dispatcher skeleton
-- [ ] `parseSelectStatement()` — in progress
-- [ ] `parseColumnList()`
-- [ ] `parseFromClause()` (no-join case first)
+- [x] `parseSelectStatement()` —  — SELECT column_list FROM relation SEMICOLON
+- [x] `parseColumnList()`
+- [x] `parseFromClause()` (no-join case first)
 - [ ] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
 - [ ] `parseGroupByClause()` / `parseLimitClause()`
 - [ ] `JOIN` support in `parseFromClause`
@@ -300,6 +300,17 @@ first.
 - [ ] `parseInsertStatement`, `parseCreateStatement`, etc. (stubs only)
 
 ### Reference test queries
+**Verified end-to-end (Query 1 below):**
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: name
+└─> COLUMN: salary
+
+Full pipeline (tokenize → parseStatement → printAST) confirmed via
+`tests/parse_test.cpp`. The hand-built-tree test used to verify
+`printAST` in isolation now lives separately in `tests/ast_test.cpp`.
+
 
 ```sql
 -- Query 1

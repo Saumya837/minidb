@@ -64,6 +64,8 @@ add_executable(tokenizer_test parser/src/lexer.cpp tests/lexer_test.cpp)
 add_executable(parse_test tests/parse_test.cpp parser/src/parser.cpp
     parser/src/lexer.cpp parser/src/printer.cpp)
 
+add_executable(lexer_test parser/src/lexer.cpp tests/lexer_test.cpp)
+
 target_link_libraries(heap_test minidb_engine pq)
 target_link_libraries(txn_test minidb_engine pq)
 target_link_libraries(tuple_visiblity_test minidb_engine pq)

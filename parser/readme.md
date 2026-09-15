@@ -1,8 +1,7 @@
 # minidb — SQL Parser
 
 This document explains the design and current state of minidb's SQL parsing
-pipeline: **lexer → parser → AST**. It's meant to bring anyone (including
-future-you) up to speed without re-reading the whole build history.
+pipeline: **lexer → parser → AST**.
 
 ## Pipeline overview
 
@@ -293,7 +292,7 @@ first.
 - [x] `parseSelectStatement()` —  — SELECT column_list FROM relation SEMICOLON
 - [x] `parseColumnList()`
 - [x] `parseFromClause()` (no-join case first)
-- [ ] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
+- [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
 - [ ] `parseGroupByClause()` / `parseLimitClause()`
 - [ ] `JOIN` support in `parseFromClause`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
@@ -307,6 +306,53 @@ Select
 │   └─> TABLE: employees
 ├─> COLUMN: name
 └─> COLUMN: salary
+```
+**Verified end-to-end (Query 2 below):**
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: name
+├─> COLUMN: salary
+└─> WHERE
+    └─> GREATER
+        ├─> COLUMN: salary
+        └─> LITERAL: 5000
+```
+
+**Verified end-to-end (Query 3 below):**
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: name
+├─> COLUMN: salary
+└─> WHERE
+    └─> AND
+        ├─> GREATER EQUAL
+        │   ├─> COLUMN: age
+        │   └─> LITERAL: 30
+        └─> EQUALS
+            ├─> COLUMN: department
+            └─> LITERAL: IT
+```
+
+
+**Verified end-to-end (Query 4 below):**
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: name
+├─> COLUMN: salary
+└─> WHERE
+    └─> OR
+        ├─> SMALLER
+        │   ├─> COLUMN: salary
+        │   └─> LITERAL: 3000
+        └─> GREATER EQUAL
+            ├─> COLUMN: salary
+            └─> LITERAL: 10000
 ```
 
 Full pipeline (tokenize → parseStatement → printAST) confirmed via

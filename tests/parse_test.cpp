@@ -4,7 +4,7 @@
 
 int main(){
     // std::string sql = "SELECT name, salary FROM employees;";
-    std::string sql = "SELECT name, salary FROM employees WHERE age >= 30 AND department = 'IT';";
+    std::string sql = "SELECT name, salary FROM employees WHERE age >= 30 or age <= 18 AND department = 'IT';";
 
     std::vector<Token> tokens = tokenize(sql);
 

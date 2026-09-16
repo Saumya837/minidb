@@ -293,7 +293,8 @@ first.
 - [x] `parseColumnList()`
 - [x] `parseFromClause()` (no-join case first)
 - [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
-- [ ] `parseGroupByClause()` / `parseLimitClause()`
+- [x] `parseGroupByClause()` — GROUP BY column_list, reuses parseColumnList
+- [ ] `parseLimitClause()`
 - [ ] `JOIN` support in `parseFromClause`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
 - [ ] `parseInsertStatement`, `parseCreateStatement`, etc. (stubs only)
@@ -336,7 +337,18 @@ Select
             ├─> COLUMN: department
             └─> LITERAL: IT
 ```
+`parseGroupByClause` calls `parseColumnList()` directly rather than
+duplicating comma-separated-identifier logic, since `GROUP BY department,
+salary` is the same grammar shape as `SELECT`'s column list.
 
+**Optional-clause lookahead pattern**, consistent across `WHERE` and
+`GROUP BY`: `parseSelectStatement` only peeks at the clause's *opening*
+keyword (`check(WHERE)`, `check(GROUP)`) — not the full clause shape —
+then unconditionally calls the specialist parser once it commits. This
+means a malformed clause (e.g. `GROUP` with no `BY`) throws a precise
+error from inside the specialist function itself (`expect(BY)` failing
+with "expected BY"), rather than a confusing downstream error from
+whatever token comes next.
 
 **Verified end-to-end (Query 4 below):**
 ```
@@ -353,6 +365,35 @@ Select
         └─> GREATER EQUAL
             ├─> COLUMN: salary
             └─> LITERAL: 10000
+```
+**Verified end-to-end (Query 5 below):**
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: department
+├─> COLUMN: salary
+├─> WHERE
+│   └─> GREATER EQUAL
+│       ├─> COLUMN: salary
+│       └─> LITERAL: 5000
+└─> GROUP BY
+    └─> COLUMN: department
+```
+**Verified end-to-end (Query 6 below):**
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: department
+├─> COLUMN: salary
+├─> WHERE
+│   └─> GREATER EQUAL
+│       ├─> COLUMN: salary
+│       └─> LITERAL: 5000
+└─> GROUP BY
+    ├─> COLUMN: department
+    └─> COLUMN: salary
 ```
 
 Full pipeline (tokenize → parseStatement → printAST) confirmed via
@@ -374,8 +415,13 @@ SELECT name, salary FROM employees WHERE age >= 30 AND department = 'IT';
 SELECT name, salary FROM employees WHERE salary < 3000 OR salary >= 10000;
 
 -- Query 5
-SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department LIMIT 10;
-```
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department;
+
+-- Query 6
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary;
+
+-- Query 6
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary limit 10;
 
 Each is used as the target for one stage of the parser build-out (see
 Status above), in increasing order of grammar coverage.

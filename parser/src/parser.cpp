@@ -51,13 +51,17 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         root->children.push_back(std::move(col));
     }
     
-    if (check(tokens, pos,TokenType::WHERE)){
+    if (check(tokens, pos, TokenType::WHERE)){
         auto whereNode = parseWhereClause(tokens, pos);
         root->children.push_back(std::move(whereNode));
     }
 
+    if (check(tokens, pos, TokenType::GROUP)){ 
+        auto group_by = parseGroupByClause(tokens, pos);
+        root->children.push_back(std::move(group_by));
+    }
+   
     expect(tokens, pos, TokenType::SEMICOLON);
-
     return root;
 }
 
@@ -203,4 +207,19 @@ std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& 
         op->value = idToken.lexeme;
     }
     return op;
+}
+
+std::unique_ptr<ASTNode> parseGroupByClause(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::GROUP);
+    expect(tokens, pos, TokenType::BY);
+
+    auto groupby = std::make_unique<ASTNode>();
+    groupby->type = Clauses::GROUP_BY;
+
+    auto colList =  parseColumnList(tokens, pos);
+
+    for (auto &col: colList){
+        groupby->children.push_back(std::move(col));
+    }
+    return groupby;
 }

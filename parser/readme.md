@@ -189,7 +189,7 @@ comparison        := operand comparator operand
 comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
 operand           := IDENTIFIER | NUMBER | STRING
 
-group_by_clause   := GROUP BY IDENTIFIER
+group_by_clause   := GROUP BY column_list
 limit_clause      := LIMIT NUMBER
 ```
 

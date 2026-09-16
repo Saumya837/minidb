@@ -60,6 +60,11 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         auto group_by = parseGroupByClause(tokens, pos);
         root->children.push_back(std::move(group_by));
     }
+
+    if (check(tokens, pos, TokenType::LIMIT)){
+        auto limit_clause = parseLimitClause(tokens, pos);
+        root->children.push_back(std::move(limit_clause));
+    }
    
     expect(tokens, pos, TokenType::SEMICOLON);
     return root;
@@ -222,4 +227,20 @@ std::unique_ptr<ASTNode> parseGroupByClause(const std::vector<Token>& tokens, si
         groupby->children.push_back(std::move(col));
     }
     return groupby;
+}
+
+std::unique_ptr<ASTNode> parseLimitClause(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::LIMIT);
+
+    auto limitNode = std::make_unique<ASTNode>();
+    limitNode->type = Clauses::LIMIT;
+
+    auto idToken = expect(tokens, pos, TokenType::NUMBER);
+    auto numberVal = std::make_unique<ASTNode>();
+    numberVal->type = ValueType::LITERAL;
+    numberVal->value = idToken.lexeme;
+
+    limitNode->children.push_back(std::move(numberVal));
+
+    return limitNode;
 }

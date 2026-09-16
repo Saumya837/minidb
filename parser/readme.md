@@ -396,6 +396,7 @@ Select
     └─> COLUMN: salary
 ```
 
+
 Full pipeline (tokenize → parseStatement → printAST) confirmed via
 `tests/parse_test.cpp`. The hand-built-tree test used to verify
 `printAST` in isolation now lives separately in `tests/ast_test.cpp`.

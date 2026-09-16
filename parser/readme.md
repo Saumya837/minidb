@@ -281,6 +281,19 @@ Sub-parsers (`parseSelectStatement`, `parseInsertStatement`, etc.) are
 currently stubs outside of the `SELECT` path, which is being built out
 first.
 
+`parseGroupByClause` calls `parseColumnList()` directly rather than
+duplicating comma-separated-identifier logic, since `GROUP BY department,
+salary` is the same grammar shape as `SELECT`'s column list.
+
+**Optional-clause lookahead pattern**, consistent across `WHERE` and
+`GROUP BY`: `parseSelectStatement` only peeks at the clause's *opening*
+keyword (`check(WHERE)`, `check(GROUP)`) — not the full clause shape —
+then unconditionally calls the specialist parser once it commits. This
+means a malformed clause (e.g. `GROUP` with no `BY`) throws a precise
+error from inside the specialist function itself (`expect(BY)` failing
+with "expected BY"), rather than a confusing downstream error from
+whatever token comes next.
+
 ### Status
 
 - [x] `TokenType`, `Token`, `keywordTable`
@@ -289,12 +302,13 @@ first.
 - [x] Full grammar (including `JOIN`, pending implementation)
 - [x] `check()`, `expect()` helpers
 - [x] `parseStatement()` dispatcher skeleton
-- [x] `parseSelectStatement()` —  — SELECT column_list FROM relation SEMICOLON
+- [x] `parseSelectStatement()` — SELECT column_list FROM relation where_clause? group_by_clause? limit_clause? SEMICOLON
 - [x] `parseColumnList()`
-- [x] `parseFromClause()` (no-join case first)
+- [x] `parseFromClause()` / `parseRelation()` (no-join case)
 - [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
-- [x] `parseGroupByClause()` — GROUP BY column_list, reuses parseColumnList
-- [ ] `parseLimitClause()`
+- [x] `parseGroupByClause()` — reuses `parseColumnList()`
+- [x] `parseLimitClause()` — LIMIT value stored as a child LITERAL node
+- [ ] `parseOrderByClause()` — in grammar, not yet implemented
 - [ ] `JOIN` support in `parseFromClause`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
 - [ ] `parseInsertStatement`, `parseCreateStatement`, etc. (stubs only)
@@ -337,18 +351,6 @@ Select
             ├─> COLUMN: department
             └─> LITERAL: IT
 ```
-`parseGroupByClause` calls `parseColumnList()` directly rather than
-duplicating comma-separated-identifier logic, since `GROUP BY department,
-salary` is the same grammar shape as `SELECT`'s column list.
-
-**Optional-clause lookahead pattern**, consistent across `WHERE` and
-`GROUP BY`: `parseSelectStatement` only peeks at the clause's *opening*
-keyword (`check(WHERE)`, `check(GROUP)`) — not the full clause shape —
-then unconditionally calls the specialist parser once it commits. This
-means a malformed clause (e.g. `GROUP` with no `BY`) throws a precise
-error from inside the specialist function itself (`expect(BY)` failing
-with "expected BY"), rather than a confusing downstream error from
-whatever token comes next.
 
 **Verified end-to-end (Query 4 below):**
 ```
@@ -396,6 +398,25 @@ Select
     └─> COLUMN: salary
 ```
 
+**Verified end-to-end (Query 7 below):**
+
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: department
+├─> COLUMN: salary
+├─> WHERE
+│   └─> GREATER EQUAL
+│       ├─> COLUMN: salary
+│       └─> LITERAL: 5000
+├─> GROUP BY
+│   ├─> COLUMN: department
+│   └─> COLUMN: salary
+└─> LIMIT
+    └─> LITERAL: 10
+```
+
 
 Full pipeline (tokenize → parseStatement → printAST) confirmed via
 `tests/parse_test.cpp`. The hand-built-tree test used to verify
@@ -421,7 +442,7 @@ SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY departmen
 -- Query 6
 SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary;
 
--- Query 6
+-- Query 7
 SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary limit 10;
 
 Each is used as the target for one stage of the parser build-out (see

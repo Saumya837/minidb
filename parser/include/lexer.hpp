@@ -14,7 +14,9 @@ enum class TokenType {
     // punctuation
     COMMA, SEMICOLON,
     // control
-    END_OF_INPUT, UNKNOWN
+    END_OF_INPUT, UNKNOWN,
+
+    ASC, DESC
 };
 
 struct Token {
@@ -39,7 +41,9 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"AND",    TokenType::AND},
     {"OR",     TokenType::OR},
     {"TABLE",  TokenType::TABLE},
-    {"JOIN",   TokenType::JOIN}
+    {"JOIN",   TokenType::JOIN},
+    {"ASC",    TokenType::ASC},
+    {"DESC",   TokenType::DESC}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

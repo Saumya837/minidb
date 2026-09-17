@@ -24,6 +24,10 @@ std::unique_ptr<ASTNode> parseComparison(const std::vector<Token>& tokens, size_
 std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& pos);
 
 std::unique_ptr<ASTNode> parseGroupByClause(const std::vector<Token>& tokens, size_t& pos);
+
+std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token>& tokens, size_t& pos);
+
 std::unique_ptr<ASTNode> parseLimitClause(const std::vector<Token>& tokens, size_t& pos);
 
 

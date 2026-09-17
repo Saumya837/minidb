@@ -103,7 +103,9 @@ enum class TokenType {
     // punctuation
     COMMA, SEMICOLON,
     // control
-    END_OF_INPUT, UNKNOWN
+    END_OF_INPUT, UNKNOWN,
+
+    ASC, DESC
 };
 
 struct Token {
@@ -130,6 +132,76 @@ back-to-back as one clause.
 **Operators are not in the keyword table.** `>`, `<`, `>=`, `<=`, `=` are
 matched by character in the tokenizer's own branches, not via string
 lookup — `keywordTable` only holds actual keyword words.
+
+### Extending the tag set — `OrderDirection` and `InternalNode`
+`ORDER BY` introduced two things the original five enums (`StatementType`,
+`Clauses`, `Relations`, `ExpressionType`, `ValueType`) had no home for:
+
+**Sort direction (`ASC`/`DESC`)** — not a value, not an expression
+operator, not a clause. New enum:
+```cpp
+enum class OrderDirection { ASC, DESC };
+```
+
+## Extending the tag set — `OrderDirection` and `InternalNode`
+
+`ORDER BY` introduced two things the original five enums (`StatementType`,
+`Clauses`, `Relations`, `ExpressionType`, `ValueType`) had no home for:
+
+**Sort direction (`ASC`/`DESC`)** — not a value, not an expression
+operator, not a clause. New enum:
+```cpp
+enum class OrderDirection { ASC, DESC };
+```
+
+**`ORDER_ITEM`, a wrapper node with no SQL keyword of its own** — each
+`ORDER BY` entry (a column/position plus optional direction) needs to be
+grouped as one unit so multiple order items don't collide:
+
+```
+ORDER BY
+├─> ORDER_ITEM
+│ ├─> COLUMN: department
+│ └─> DESC
+└─> ORDER_ITEM
+  ├─> COLUMN: salary
+  └─> ASC
+```
+
+`ORDER_ITEM` doesn't correspond to anything a user writes in SQL — it's
+purely a tree-shape convenience the parser introduces. Putting it in
+`Clauses` would be wrong: `Clauses` is meant to represent real SQL
+clauses (`WHERE`, `GROUP_BY`, etc.), and `ORDER_ITEM` isn't one. Instead
+it goes in a new enum reserved for internal, non-SQL bookkeeping nodes:
+```cpp
+enum class InternalNode { ORDER_ITEM };
+```
+Any future wrapper/grouping node that exists only for tree structure
+(not because a keyword demands it) belongs in `InternalNode`, not in
+`Clauses` or `Relations` — keeping those enums honest about what they
+represent.
+
+**Position-based ordering (`ORDER BY 2`)** gets its own `ValueType`
+member rather than reusing `LITERAL`:
+```cpp
+enum class ValueType { COLUMN, LITERAL, POSITION };
+```
+Reasoning: a bare number in `ORDER BY 2` and a bare number in
+`WHERE age = 30` mean fundamentally different things — one is a column
+position, one is a comparison value. Tagging them identically as
+`LITERAL` would force a semantic analyzer to re-derive the distinction
+later by walking back up the tree to check context. Tagging the node
+itself as `POSITION` means its meaning is self-evident without needing
+surrounding structure to disambiguate — the same reasoning that
+justified separating `COLUMN` from `LITERAL` in the first place.
+
+Updated `ASTTag`:
+```cpp
+using ASTTag = std::variant<StatementType, Clauses, Relations,
+                             ExpressionType, ValueType,
+                             OrderDirection, InternalNode>;
+```
+
 
 ### `tokenize()` behavior
 
@@ -173,12 +245,13 @@ lexer *behavior*, not token *data* — the two belong in separate files.)
 ```
 statement        := SELECT column_list from_clause where_clause? group_by_clause? limit_clause? SEMICOLON
 
-column_list       := column (COMMA column)*
+column_list       := column  ASC? | DESC? (COMMA column)* #ASC, DESC for order_by 
 column            := IDENTIFIER
 
 from_clause       := FROM relation joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
 relation          := IDENTIFIER
+Position          := NUMBER
 
 where_clause      := WHERE condition
 
@@ -190,6 +263,9 @@ comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
 operand           := IDENTIFIER | NUMBER | STRING
 
 group_by_clause   := GROUP BY column_list
+order_by_clause   := ORDER BY order_item (COMMA order_item)*
+order_item        := (column | position) (ASC | DESC)?
+
 limit_clause      := LIMIT NUMBER
 ```
 
@@ -293,6 +369,8 @@ means a malformed clause (e.g. `GROUP` with no `BY`) throws a precise
 error from inside the specialist function itself (`expect(BY)` failing
 with "expected BY"), rather than a confusing downstream error from
 whatever token comes next.
+
+
 
 ### Status
 

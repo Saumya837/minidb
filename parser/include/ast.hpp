@@ -6,8 +6,7 @@
 #include <memory>
 
 enum class StatementType {
-    SELECT, INSERT, UPDATE, DELETE, CREATE,
-    ALTER, DROP
+    SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP
 };
 
 enum class Clauses{
@@ -22,12 +21,19 @@ enum class ExpressionType {
     EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR
 };
 
-enum class ValueType{
-    COLUMN, LITERAL
+enum class InternalNode {
+    ORDER_ITEM
 };
 
+enum class ValueType {
+    COLUMN, LITERAL, POSITION
+};
 
-using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType>;
+enum class OrderDirection {
+    ASC, DESC
+};
+
+using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType, OrderDirection, InternalNode>;
 
 struct ASTNode {
     ASTTag type;

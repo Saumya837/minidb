@@ -386,7 +386,7 @@ whatever token comes next.
 - [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` / `parseComparison()` / `parseOperand()`
 - [x] `parseGroupByClause()` — reuses `parseColumnList()`
 - [x] `parseLimitClause()` — LIMIT value stored as a child LITERAL node
-- [ ] `parseOrderByClause()` — in grammar, not yet implemented
+- [x] `parseOrderByClause()` — in grammar, not yet implemented
 - [ ] `JOIN` support in `parseFromClause`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
 - [ ] `parseInsertStatement`, `parseCreateStatement`, etc. (stubs only)
@@ -495,6 +495,31 @@ Select
     └─> LITERAL: 10
 ```
 
+**Verified end-to-end (Query 8 below):**
+```
+Select
+  ├─> FROM
+  │   └─> TABLE: employees
+  ├─> COLUMN: department
+  ├─> COLUMN: salary
+  ├─> WHERE
+  │   └─> GREATER_EQUAL
+  │       ├─> COLUMN: salary
+  │       └─> LITERAL: 5000
+  ├─> GROUP BY
+  │   ├─> COLUMN: department
+  │   └─> COLUMN: salary
+  ├─> ORDER BY
+  │   ├─> ORDER_ITEM
+  │   │   ├─> COLUMN: salary
+  │   │   └─> DESC
+  │   └─> ORDER_ITEM
+  │       ├─> COLUMN: department
+  │       └─> DESC
+  └─> LIMIT
+      └─> LITERAL: 10
+```
+
 
 Full pipeline (tokenize → parseStatement → printAST) confirmed via
 `tests/parse_test.cpp`. The hand-built-tree test used to verify
@@ -522,6 +547,13 @@ SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY departmen
 
 -- Query 7
 SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary limit 10;
+
+-- Query 8
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary DESC, department DESC limit 10;
+
+-- Query 9
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary, department limit 10;
+
 
 Each is used as the target for one stage of the parser build-out (see
 Status above), in increasing order of grammar coverage.

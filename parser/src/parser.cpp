@@ -61,6 +61,11 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         root->children.push_back(std::move(group_by));
     }
 
+    if(check(tokens, pos, TokenType::ORDER)){
+        auto order_by = parseOrderByClause(tokens, pos);
+        root->children.push_back(std::move(order_by));
+    }
+
     if (check(tokens, pos, TokenType::LIMIT)){
         auto limit_clause = parseLimitClause(tokens, pos);
         root->children.push_back(std::move(limit_clause));
@@ -243,4 +248,60 @@ std::unique_ptr<ASTNode> parseLimitClause(const std::vector<Token>& tokens, size
     limitNode->children.push_back(std::move(numberVal));
 
     return limitNode;
+}
+
+std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens, pos, TokenType::ORDER);
+    expect(tokens, pos, TokenType::BY);
+
+    auto orderby = std::make_unique<ASTNode>();
+    orderby->type = Clauses::ORDER_BY;
+
+    auto order_item = parseOrderItem(tokens, pos);
+    orderby->children.push_back(std::move(order_item));
+
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto next_order_item = parseOrderItem(tokens, pos);
+        orderby->children.push_back(std::move(next_order_item));
+    }
+
+    return orderby;
+}
+
+std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t& pos){
+    auto order_item = std::make_unique<ASTNode>();
+    order_item->type = InternalNode::ORDER_ITEM;
+    if(check(tokens, pos, TokenType::IDENTIFIER)){
+        Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+        auto col = std::make_unique<ASTNode>();
+        col->type = ValueType::COLUMN;
+        col->value = idToken.lexeme;
+        order_item->children.push_back(std::move(col));
+    }
+    else{
+        Token posToken = expect(tokens, pos, TokenType::NUMBER);
+
+        auto posNode = std::make_unique<ASTNode>();
+        posNode->type = ValueType::POSITION;
+        posNode->value = posToken.lexeme;
+        order_item->children.push_back(std::move(posNode));
+    }
+
+    auto sortDir = std::make_unique<ASTNode>();
+    if (check(tokens, pos, TokenType::DESC)){
+        expect(tokens, pos, TokenType::DESC);
+        sortDir->type = OrderDirection::DESC;
+        order_item->children.push_back(std::move(sortDir));
+    }
+    else{
+        if (check(tokens, pos, TokenType::ASC)){
+            //consume ASC if present
+            expect(tokens, pos, TokenType::ASC);
+        }
+        sortDir->type = OrderDirection::ASC;
+        order_item->children.push_back(std::move(sortDir));
+    }
+
+    return order_item;
 }

@@ -51,6 +51,19 @@ std::string tagToString(const ASTTag& tag){
             switch(t){
                 case ValueType::COLUMN: return "COLUMN";
                 case ValueType::LITERAL: return "LITERAL";
+                case ValueType::POSITION: return "POSITION";
+            }
+        }
+        else if constexpr(std::is_same_v<T, OrderDirection>){
+            switch(t){
+                case OrderDirection::ASC: return "ASC";
+                case OrderDirection::DESC: return "DESC";
+            }
+        }
+        else if constexpr(std::is_same_v<T, InternalNode>){
+            switch(t){
+                // To Make it future Proof and modular kept it switch even though only One option of InternalNode is present
+                case InternalNode::ORDER_ITEM: return "ORDER_ITEM";
             }
         }
     }, tag);

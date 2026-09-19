@@ -34,6 +34,8 @@ std::string tagToString(const ASTTag& tag){
             switch(t){
                 case Relations::TABLE: return "TABLE";
                 case Relations::JOIN: return "JOIN";
+                case Relations::LEFT_JOIN: return "LEFT_JOIN";
+                case Relations::RIGHT_JOIN: return "RIGHT_JOIN";
             }
         }
         else if constexpr(std::is_same_v<T, ExpressionType>){

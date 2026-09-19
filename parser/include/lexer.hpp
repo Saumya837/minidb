@@ -6,6 +6,7 @@
 enum class TokenType {
     // keywords
     SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP,
+
     FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, TABLE, JOIN,
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
@@ -16,7 +17,7 @@ enum class TokenType {
     // control
     END_OF_INPUT, UNKNOWN,
 
-    ASC, DESC
+    ASC, DESC, LEFT, RIGHT, ON
 };
 
 struct Token {
@@ -43,7 +44,10 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"TABLE",  TokenType::TABLE},
     {"JOIN",   TokenType::JOIN},
     {"ASC",    TokenType::ASC},
-    {"DESC",   TokenType::DESC}
+    {"DESC",   TokenType::DESC},
+    {"LEFT",   TokenType::LEFT},
+    {"RIGHT",  TokenType::RIGHT},
+    {"ON",     TokenType::ON}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

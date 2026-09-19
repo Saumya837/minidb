@@ -109,6 +109,15 @@ std::unique_ptr<ASTNode> parseFromClause(const std::vector<Token>& tokens, size_
     auto baseTable = parseRelation(tokens, pos);
     from_node->children.push_back(std::move(baseTable));
 
+    while (check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto nextRel = parseRelation(tokens, pos);
+        from_node->children.push_back(std::move(nextRel));
+    }
+    while(check(tokens, pos, TokenType::LEFT) || check(tokens, pos, TokenType::RIGHT) || check(tokens, pos, TokenType::JOIN)){
+        auto join = parseJoinClause(tokens, pos);
+        from_node->children.push_back(std::move(join));
+    }
     return from_node;
 }
 
@@ -287,7 +296,6 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
         posNode->value = posToken.lexeme;
         order_item->children.push_back(std::move(posNode));
     }
-
     auto sortDir = std::make_unique<ASTNode>();
     if (check(tokens, pos, TokenType::DESC)){
         expect(tokens, pos, TokenType::DESC);
@@ -302,6 +310,35 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
         sortDir->type = OrderDirection::ASC;
         order_item->children.push_back(std::move(sortDir));
     }
-
     return order_item;
 }
+
+std::unique_ptr<ASTNode> parseJoinClause(const std::vector<Token> &tokens, size_t& pos){
+    auto join = std::make_unique<ASTNode>();
+    if(check(tokens, pos, TokenType::LEFT)){
+        expect(tokens, pos, TokenType::LEFT);
+        expect(tokens, pos, TokenType::JOIN);
+        join->type = Relations::LEFT_JOIN;
+        auto rel = parseRelation(tokens, pos);
+        join->children.push_back(std::move(rel));
+    }
+    else if(check(tokens, pos, TokenType::RIGHT)){
+        expect(tokens, pos, TokenType::RIGHT);
+        expect(tokens, pos, TokenType::JOIN);
+        join->type = Relations::RIGHT_JOIN;
+        auto rel = parseRelation(tokens, pos);
+        join->children.push_back(std::move(rel));
+    }
+    else{
+        expect(tokens, pos, TokenType::JOIN);
+        join->type = Relations::JOIN;
+        auto rel = parseRelation(tokens, pos);
+        join->children.push_back(std::move(rel));
+    }
+
+    expect(tokens, pos, TokenType::ON);
+    auto cmp = parseComparison(tokens, pos);
+    join->children.push_back(std::move(cmp));
+    return join;
+}
+

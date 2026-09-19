@@ -248,8 +248,9 @@ statement        := SELECT column_list from_clause where_clause? group_by_clause
 column_list       := column  ASC? | DESC? (COMMA column)* #ASC, DESC for order_by 
 column            := IDENTIFIER
 
-from_clause       := FROM relation joins*
+from_clause       := FROM relation (COMMA relation)* joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
+
 relation          := IDENTIFIER
 Position          := NUMBER
 

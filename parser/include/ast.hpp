@@ -14,7 +14,7 @@ enum class Clauses{
 };
 
 enum class Relations{
-    TABLE, JOIN 
+    TABLE, JOIN, LEFT_JOIN, RIGHT_JOIN
 };
 
 enum class ExpressionType {

@@ -86,6 +86,12 @@ std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& 
     auto first_column = std::make_unique<ASTNode>();
     first_column->type = ValueType::COLUMN;
     first_column->value = idToken.lexeme;
+
+    if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
+        auto alias = parseAlias(tokens, pos);
+        first_column->children.push_back(std::move(alias));
+    }
+
     columnList.push_back(std::move(first_column));
 
     while(check(tokens, pos, TokenType::COMMA)){
@@ -94,6 +100,12 @@ std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& 
         auto next_col = std::make_unique<ASTNode>();
         next_col->type = ValueType::COLUMN;
         next_col->value = nextId.lexeme;
+
+        if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
+            auto alias = parseAlias(tokens, pos);
+            next_col->children.push_back(std::move(alias));
+        }
+
         columnList.push_back(std::move(next_col));
     }
     return columnList;
@@ -127,6 +139,12 @@ std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t&
     auto relation = std::make_unique<ASTNode>();
     relation->type = Relations::TABLE;
     relation->value = idToken.lexeme;
+
+    if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
+        auto alias = parseAlias(tokens, pos);
+        relation->children.push_back(std::move(alias));
+    }
+
     return relation;
 }
 
@@ -342,3 +360,14 @@ std::unique_ptr<ASTNode> parseJoinClause(const std::vector<Token> &tokens, size_
     return join;
 }
 
+std::unique_ptr<ASTNode> parseAlias(const std::vector<Token> &tokens, size_t& pos){
+    auto alias = std::make_unique<ASTNode>();
+    if(check(tokens, pos, TokenType::AS)){
+        expect(tokens, pos, TokenType::AS);
+    }
+    auto idToken =  expect(tokens, pos, TokenType::IDENTIFIER);
+    alias->type = ValueType::ALIAS;
+    alias->value = idToken.lexeme;
+
+    return alias;
+}

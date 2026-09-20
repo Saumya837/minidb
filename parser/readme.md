@@ -246,12 +246,12 @@ lexer *behavior*, not token *data* — the two belong in separate files.)
 statement        := SELECT column_list from_clause where_clause? group_by_clause? limit_clause? SEMICOLON
 
 column_list       := column  ASC? | DESC? (COMMA column)* #ASC, DESC for order_by 
-column            := IDENTIFIER
+column            := IDENTIFIER (AS? IDENTIFIER)?
 
 from_clause       := FROM relation (COMMA relation)* joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
 
-relation          := IDENTIFIER
+relation          := IDENTIFIER (AS? IDENTIFIER)?
 Position          := NUMBER
 
 where_clause      := WHERE condition
@@ -388,7 +388,7 @@ whatever token comes next.
 - [x] `parseGroupByClause()` — reuses `parseColumnList()`
 - [x] `parseLimitClause()` — LIMIT value stored as a child LITERAL node
 - [x] `parseOrderByClause()` — in grammar, not yet implemented
-- [ ] `JOIN` support in `parseFromClause`
+- [x] `JOIN` support in `parseFromClause`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
 - [ ] `parseInsertStatement`, `parseCreateStatement`, etc. (stubs only)
 

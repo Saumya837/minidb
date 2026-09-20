@@ -54,6 +54,7 @@ std::string tagToString(const ASTTag& tag){
                 case ValueType::COLUMN: return "COLUMN";
                 case ValueType::LITERAL: return "LITERAL";
                 case ValueType::POSITION: return "POSITION";
+                case ValueType::ALIAS: return "ALIAS";
             }
         }
         else if constexpr(std::is_same_v<T, OrderDirection>){

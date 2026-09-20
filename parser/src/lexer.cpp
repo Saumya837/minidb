@@ -22,16 +22,27 @@ std::vector<Token> tokenize(const std::string &sql){
                 lexeme += sql[pos];
                 pos++;
             }
+
+            if (pos < length && sql[pos] == '.' && pos + 1 < length && std::isdigit(static_cast<unsigned char>(sql[pos + 1]))) {
+                lexeme += sql[pos];
+                pos++;
+                while ((pos < length) && std::isdigit(static_cast<unsigned char>(sql[pos]))){
+                    lexeme += sql[pos];
+                    pos++;
+                }
+            }
+
             tokens.push_back({TokenType::NUMBER, lexeme});
             continue;
         }
 
         else if (std::isalpha(static_cast<unsigned char>(c)) or c == '_') {
             std::string lexeme = "";
-            while((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])) || std::isalpha(static_cast<unsigned char>(sql[pos])) || sql[pos] == '_')){
+            while((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])) || std::isalpha(static_cast<unsigned char>(sql[pos])) || sql[pos] == '_' || sql[pos] == '.')){
                 lexeme += sql[pos];
                 pos++;
             }
+
             std::string upperLexeme = lexeme;
             for (char& ch :upperLexeme){
                 ch = std::toupper(static_cast<unsigned char>(ch));

@@ -17,7 +17,9 @@ enum class TokenType {
     // control
     END_OF_INPUT, UNKNOWN,
 
-    ASC, DESC, LEFT, RIGHT, ON, AS
+    ASC, DESC, LEFT, RIGHT,
+    
+    ON, AS, HAVING
 };
 
 struct Token {
@@ -48,7 +50,8 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"LEFT",   TokenType::LEFT},
     {"RIGHT",  TokenType::RIGHT},
     {"ON",     TokenType::ON},
-    {"AS",     TokenType::AS}
+    {"AS",     TokenType::AS},
+    {"HAVING", TokenType::HAVING}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

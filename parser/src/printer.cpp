@@ -27,6 +27,7 @@ std::string tagToString(const ASTTag& tag){
                 case Clauses::FROM: return "FROM";
                 case Clauses::GROUP_BY: return "GROUP BY";
                 case Clauses::ORDER_BY: return "ORDER BY";
+                case Clauses::HAVING: return "HAVING";
                 case Clauses::LIMIT: return "LIMIT";
             }
         }

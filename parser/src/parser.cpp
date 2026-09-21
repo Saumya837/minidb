@@ -1,7 +1,5 @@
 #include "parser.hpp"
 
-// bool check(const std::vector<Token>& tokens, size_t pos, TokenType type);
-// Token expect(const std::vector<Token>& tokens, size_t& pos, TokenType type);
 namespace{
     bool check(const std::vector<Token>& tokens, size_t pos, TokenType type) {
         if (pos >= tokens.size()) return false;
@@ -56,15 +54,29 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         root->children.push_back(std::move(whereNode));
     }
 
+    bool hasGroupBy = false;
     if (check(tokens, pos, TokenType::GROUP)){ 
         auto group_by = parseGroupByClause(tokens, pos);
         root->children.push_back(std::move(group_by));
+        hasGroupBy = true;
     }
 
     if(check(tokens, pos, TokenType::ORDER)){
         auto order_by = parseOrderByClause(tokens, pos);
         root->children.push_back(std::move(order_by));
     }
+
+    if(check(tokens, pos, TokenType::HAVING)){
+        if(hasGroupBy){
+            auto havingNode = parseHavingClause(tokens, pos);
+            root->children.push_back(std::move(havingNode));
+        }
+        else{
+            throw std::runtime_error("HAVING clause cannot exist without GROUP BY");
+        }
+    }
+
+
 
     if (check(tokens, pos, TokenType::LIMIT)){
         auto limit_clause = parseLimitClause(tokens, pos);
@@ -77,10 +89,6 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
 
 std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> columnList;
-
-    // TODO: future iteration — support SELECT * (star) and column
-    // aliasing (e.g. "salary AS s") here. For now, only bare
-    // comma-separated IDENTIFIERs are handled.
 
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
     auto first_column = std::make_unique<ASTNode>();
@@ -370,4 +378,18 @@ std::unique_ptr<ASTNode> parseAlias(const std::vector<Token> &tokens, size_t& po
     alias->value = idToken.lexeme;
 
     return alias;
+}
+
+std::unique_ptr<ASTNode> parseHavingClause(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens,pos, TokenType::HAVING);
+
+    auto havingNode = std::make_unique<ASTNode>();
+    havingNode->type = Clauses::HAVING;
+
+    auto comparsion = parseOrExpr(tokens, pos);
+
+   // TODO: aggregation support (COUNT(*), SUM(x), etc. as operands)
+
+    havingNode->children.push_back(std::move(comparsion));
+    return havingNode;
 }

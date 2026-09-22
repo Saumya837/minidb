@@ -1,6 +1,7 @@
 #include "parser.hpp"
 #include "lexer.hpp"
 #include "printer.hpp"
+#include <iostream>
 
 int main(){
     // Query 1 - std::string sql = "SELECT name, salary FROM employees;";
@@ -11,16 +12,28 @@ int main(){
     //std::string sql = "SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary desc, department limit 10;";
     //std::string sql = "SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary asc, department limit 10;";
     //std::string sql = "SELECT department as dept, salary as liab FROM employees emp LEFT JOIN departments dept ON emp.dept_id = dept.id WHERE salary < 3000.50 OR salary >= 10000.40 limit 10;";
-    
-    //std::string sql = "SELECT department, salary FROM employees GROUP BY department HAVING salary > 5000;";
-    std::string sql = "SELECT department, salary FROM employees HAVING salary > 5000";
+    //"SELECT department, salary FROM employees GROUP BY department HAVING salary > 5000;";
+    //"SELECT department, salary FROM employees HAVING salary > 5000";
+    std::string sql;
+    while (true){
+        std::cout << "SQL> ";
 
-    std::vector<Token> tokens = tokenize(sql);
+        std::getline(std::cin, sql); 
 
-    size_t position = 0;
-    auto root = parseStatement(tokens, position);
+        if (sql == "exit" || sql == "quit"){
+            break;
+        }
 
-    printAST(*root);
+        try{
+            std::vector<Token> tokens = tokenize(sql);
+            size_t position = 0;
+            auto root = parseStatement(tokens, position);
 
+            printAST(*root);
+        }
+        catch (const std::runtime_error& e) {
+            std::cout << "Error: " << e.what() << "\n";
+        }
+    }
     return 0;
 }

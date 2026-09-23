@@ -97,3 +97,15 @@ void printAST(const ASTNode& root) {
         printTree(*root.children[i], "", i == root.children.size() - 1);
     }
 }
+
+void printAST(const ASTNode& root) {
+    std::string label = tagToString(root.type);
+    if(!root.value.empty())
+        label += ": " + root.value;
+    std::cout<< label <<"\n";
+
+    for (size_t i = 0; i<root.children.size(); ++i){
+        printTree(*root.children[i], "", i == root.children.size() - 1);
+    }
+}
+

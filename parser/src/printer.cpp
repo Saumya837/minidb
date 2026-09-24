@@ -23,6 +23,7 @@ std::string tagToString(const ASTTag& tag){
         }
         else if constexpr(std::is_same_v<T, Clauses>){
             switch(t){
+                case Clauses::DISTINCT: return "DISTINCT";
                 case Clauses::WHERE: return "WHERE";
                 case Clauses::FROM: return "FROM";
                 case Clauses::GROUP_BY: return "GROUP BY";
@@ -84,17 +85,6 @@ void printTree(const ASTNode& node, const std::string& prefix, bool isLast){
 
     for(size_t i = 0; i<node.children.size(); ++i){
         printTree(*node.children[i], childPrefix, i == node.children.size() -1);
-    }
-}
-
-void printAST(const ASTNode& root) {
-    std::string label = tagToString(root.type);
-    if(!root.value.empty())
-        label += ": " + root.value;
-    std::cout<< label <<"\n";
-
-    for (size_t i = 0; i<root.children.size(); ++i){
-        printTree(*root.children[i], "", i == root.children.size() - 1);
     }
 }
 

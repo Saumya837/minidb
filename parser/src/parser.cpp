@@ -39,6 +39,11 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
     auto root = std::make_unique<ASTNode>();
     root -> type = StatementType::SELECT;
 
+    if(check(tokens, pos, TokenType::DISTINCT)){
+        auto distinctNode = parseDistinctClause(tokens, pos);
+        root->children.push_back(std::move(distinctNode));
+    }
+
     std::vector<std::unique_ptr<ASTNode>> columnList = parseColumnList(tokens, pos);
 
     auto fromNode = parseFromClause(tokens, pos);
@@ -75,8 +80,6 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
             throw std::runtime_error("HAVING clause cannot exist without GROUP BY");
         }
     }
-
-
 
     if (check(tokens, pos, TokenType::LIMIT)){
         auto limit_clause = parseLimitClause(tokens, pos);
@@ -392,4 +395,13 @@ std::unique_ptr<ASTNode> parseHavingClause(const std::vector<Token> &tokens, siz
 
     havingNode->children.push_back(std::move(comparsion));
     return havingNode;
+}
+
+std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens,pos, TokenType::DISTINCT);
+
+    auto distinctNode = std::make_unique<ASTNode>();
+    distinctNode->type = Clauses::DISTINCT;
+
+    return distinctNode;
 }

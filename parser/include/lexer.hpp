@@ -5,7 +5,7 @@
 
 enum class TokenType {
     // keywords
-    SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP,
+    SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, DISTINCT,
 
     FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, TABLE, JOIN,
     // identifiers & literals
@@ -29,6 +29,7 @@ struct Token {
 
 const std::unordered_map<std::string, TokenType> keywordTable = {
     {"SELECT", TokenType::SELECT},
+    {"DISTINCT", TokenType::DISTINCT},
     {"INSERT", TokenType::INSERT},
     {"UPDATE", TokenType::UPDATE},
     {"DELETE", TokenType::DELETE},

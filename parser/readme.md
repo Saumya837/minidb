@@ -841,6 +841,28 @@ Select
 └─> LIMIT
     └─> LITERAL: 10
 ```
+**Verified end-to-end (Query 13 below):**
+
+```
+Select
+├─> FROM
+│   └─> TABLE: employees
+├─> COLUMN: department
+├─> COLUMN: salary
+├─> GROUP BY
+│   └─> COLUMN: department
+└─> HAVING
+    └─> GREATER
+        ├─> COLUMN: salary
+        └─> LITERAL: 5000
+```
+
+**Verified end-to-end (Query 14 below):**
+```
+SQL> SELECT department, salary FROM employees HAVING salary > 5000;
+Error: HAVING clause cannot exist without GROUP BY
+
+```
 
 
 Each query below is used as the target for one stage of the parser

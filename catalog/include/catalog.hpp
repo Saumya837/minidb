@@ -45,7 +45,6 @@ class Catalog {
         void addTable(const std::string& name, std::vector<ColumnDef> columns);
         const TableDef* getTable(const std::string& name) const;
         const std::unordered_map<std::string, TableDef>& tables() const;
-
 };
 
 

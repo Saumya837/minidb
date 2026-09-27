@@ -279,7 +279,8 @@ enum class TokenType {
     // keywords
     SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP,
     FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, TABLE, JOIN,
-    HAVING, AS, ON, LEFT, RIGHT,
+    HAVING, AS, ON, LEFT, RIGHT, INTO, VALUES,
+
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
     // operators
@@ -289,7 +290,7 @@ enum class TokenType {
     // control
     END_OF_INPUT, UNKNOWN,
     // ordering
-    ASC, DESC
+    ASC, DESC,
 };
 
 struct Token {
@@ -376,15 +377,23 @@ files.)
 ### Grammar
 
 ```
-statement         := SELECT column_list from_clause where_clause? group_by_clause?
+Statement        := SelectStat | InsertStat
+
+InsertStat       := INSERT INTO IDENTIFIER LPAREN column_list RPAREN VALUES value_tuple (COMMA value_tuple)* SEMICOLON
+value_tuple      := LPAREN value_list RPAREN
+value_list       := literal (COMMA literal)*
+literal          := NUMBER | STRING
+
+SelectStat       := SELECT column_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 column_list       := column (COMMA column)*
-column            := IDENTIFIER (AS IDENTIFIER)?
+column            := IDENTIFIER alias?
 
 from_clause       := FROM relation (COMMA relation)* joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
-relation          := IDENTIFIER (AS IDENTIFIER)?
+relation          := IDENTIFIER alias?
+alias             := AS? IDENTIFIER
 
 where_clause      := WHERE condition
 having_clause     := HAVING condition   # requires a preceding group_by_clause

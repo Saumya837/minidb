@@ -16,6 +16,7 @@ include_directories(
     server/include
     session/include
     parser/include
+    catalog/include
     ${PG_INCLUDE_DIR}
 )
 

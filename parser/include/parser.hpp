@@ -11,6 +11,7 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
 std::unique_ptr<ASTNode> parseInsertStatement(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token>& tokens, size_t& pos);
 
+std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_t& pos);
 std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos);
 

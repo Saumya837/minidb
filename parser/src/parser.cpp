@@ -16,6 +16,12 @@ namespace{
             throw std::runtime_error("Expected token type " + std::to_string(static_cast<int>(type)) + " but found " + tokens[pos].lexeme + "' at position " + std::to_string(pos));
         }
     }
+
+    Token expectLiteral(const std::vector<Token> &tokens, size_t &pos){
+        if(check(tokens, pos, TokenType::NUMBER)) return expect(tokens, pos, TokenType::NUMBER);
+        if(check(tokens, pos, TokenType::STRING)) return expect(tokens, pos, TokenType::STRING); 
+        throw std::runtime_error("Expected a NUMBER or STRING literal at position " + std::to_string(pos));
+    }
 }
 
 std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t& pos){
@@ -23,7 +29,7 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
         return parseSelectStatement(tokens, pos);
     } 
     else if(check(tokens, pos, TokenType::INSERT)){
-        throw std::runtime_error("parseInsertStatement not yet implemented");
+        return parseInsertStatement(tokens, pos);;
     } 
     else if(check(tokens, pos, TokenType::CREATE)){
         throw std::runtime_error("parseCreateStatement not yet implemented");
@@ -31,6 +37,69 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     else {
         throw std::runtime_error("Unknown statement type at position " + std::to_string(pos));
     }   
+}
+
+std::unique_ptr<ASTNode> parseInsertStatement(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::INSERT);
+    auto root = std::make_unique<ASTNode>();
+    root->type = StatementType::INSERT;
+
+    expect(tokens, pos, TokenType::INTO);
+    
+    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    auto relation = std::make_unique<ASTNode>();
+    relation->type = Relations::TABLE;
+    relation->value = idToken.lexeme;
+    root->children.push_back(std::move(relation));
+
+    if (check(tokens, pos, TokenType::LPAREN)){
+        expect(tokens, pos, TokenType::LPAREN);
+        auto columnList = parseColumnList(tokens, pos);
+        for(auto& col : columnList) {
+            root->children.push_back(std::move(col));
+        }
+        expect(tokens, pos, TokenType::RPAREN);
+    }
+
+    expect(tokens, pos, TokenType::VALUES);
+
+    auto valueTuple = parseValueTuple(tokens, pos);
+    root->children.push_back(std::move(valueTuple));
+
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto valueTuple = parseValueTuple(tokens, pos);
+        root->children.push_back(std::move(valueTuple));
+    }
+
+    expect(tokens, pos, TokenType::SEMICOLON);
+    return root;
+}
+
+std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::LPAREN);
+
+    auto value_list = std::make_unique<ASTNode>();
+    value_list->type = InternalNode::VALUE_TYPE;
+
+
+    auto value_item = std::make_unique<ASTNode>();
+    auto idToken = expectLiteral(tokens, pos);
+    value_item->type = ValueType::LITERAL;
+    value_item->value = idToken.lexeme;
+    value_list->children.push_back(std::move(value_item));
+
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto nextToken = expectLiteral(tokens, pos);
+        auto next_value_item = std::make_unique<ASTNode>();
+        next_value_item->type = ValueType::LITERAL;
+        next_value_item->value = nextToken.lexeme;
+        value_list->children.push_back(std::move(next_value_item));
+    }
+
+    expect(tokens, pos, TokenType::RPAREN);
+    return value_list;
 }
 
 std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, size_t& pos){
@@ -45,9 +114,7 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
     }
 
     std::vector<std::unique_ptr<ASTNode>> columnList = parseColumnList(tokens, pos);
-
     auto fromNode = parseFromClause(tokens, pos);
-
     root->children.push_back(std::move(fromNode));
 
     for(auto& col : columnList) {

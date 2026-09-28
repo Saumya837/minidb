@@ -84,6 +84,18 @@ std::vector<Token> tokenize(const std::string &sql){
             continue;
         }
 
+        else if (c == '('){
+            tokens.push_back(Token{TokenType::LPAREN, "("});
+            pos++;
+            continue;
+        }
+
+        else if (c == ')'){
+            tokens.push_back(Token{TokenType::RPAREN, ")"});
+            pos++;
+            continue;
+        }
+
         else if (c == '='){
             tokens.push_back(Token{TokenType::EQUALS, "="});
             pos++;

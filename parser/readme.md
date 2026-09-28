@@ -379,7 +379,7 @@ files.)
 ```
 Statement        := SelectStat | InsertStat
 
-InsertStat       := INSERT INTO IDENTIFIER LPAREN column_list RPAREN VALUES value_tuple (COMMA value_tuple)* SEMICOLON
+InsertStat       := INSERT INTO IDENTIFIER (LPAREN column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
 value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING

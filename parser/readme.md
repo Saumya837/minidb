@@ -850,7 +850,7 @@ Select
 └─> LIMIT
     └─> LITERAL: 10
 ```
-**Verified end-to-end (Query 13 below):**
+**Verified end-to-end (Query 14 below):**
 
 ```
 Select
@@ -866,11 +866,59 @@ Select
         └─> LITERAL: 5000
 ```
 
-**Verified end-to-end (Query 14 below):**
+**Verified end-to-end (Query 15 below):**
 ```
 SQL> SELECT department, salary FROM employees HAVING salary > 5000;
 Error: HAVING clause cannot exist without GROUP BY
+```
 
+**Verified end-to-end (Query 16 below):**
+```
+Insert
+├─> TABLE: EMPLOYEE
+├─> COLUMN: NAME
+├─> COLUMN: AGE
+├─> COLUMN: DEPARTMENT
+├─> COLUMN: DESIGNATION
+├─> COLUMN: SALARY
+└─> VALUE_TUPLE
+    ├─> LITERAL: SOMYA
+    ├─> LITERAL: 29
+    ├─> LITERAL: CSE
+    ├─> LITERAL: DB ENGINEER
+    └─> LITERAL: 100000
+```
+
+**Verified end-to-end (Query 17 below):**
+```
+Insert
+├─> TABLE: EMPLOYEE
+├─> COLUMN: NAME
+├─> COLUMN: AGE
+├─> VALUE_TUPLE
+│   ├─> LITERAL: SOMYA
+│   └─> LITERAL: 29
+├─> VALUE_TUPLE
+│   ├─> LITERAL: RAHUL
+│   └─> LITERAL: 31
+└─> VALUE_TUPLE
+    ├─> LITERAL: PRIYA
+    └─> LITERAL: 27
+```
+
+**Verified end-to-end (Query 18 below):**
+```
+Insert
+├─> TABLE: EMPLOYEE
+├─> VALUE_TUPLE
+│   ├─> LITERAL: SOMYA
+│   └─> LITERAL: 29
+├─> VALUE_TUPLE
+│   ├─> LITERAL: RAHUL
+│   └─> LITERAL: 31
+└─> VALUE_TUPLE
+    ├─> LITERAL: PRIYA
+    └─> LITERAL: 27
 ```
 
 
@@ -933,6 +981,15 @@ SELECT department, salary FROM employees GROUP BY department HAVING salary > 500
 -- Query 15 (HAVING error case — must throw)
 SELECT department, salary FROM employees HAVING salary > 5000;
 -- expected: "HAVING clause cannot exist without GROUP BY"
+
+-- Query 16
+INSERT INTO EMPLOYEE (NAME, AGE, DEPARTMENT, DESIGNATION, SALARY) VALUES('SOMYA', 29, 'CSE', 'DB ENGINEER', 100000);   
+
+-- Query 17
+INSERT INTO EMPLOYEE (NAME, AGE) VALUES ('SOMYA', 29), ('RAHUL', 31), ('PRIYA', 27);
+
+-- Query 18
+INSERT INTO EMPLOYEE VALUES ('SOMYA', 29), ('RAHUL', 31), ('PRIYA', 27);     
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

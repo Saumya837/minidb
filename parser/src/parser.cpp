@@ -80,15 +80,13 @@ std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_
     expect(tokens, pos, TokenType::LPAREN);
 
     auto value_list = std::make_unique<ASTNode>();
-    value_list->type = InternalNode::VALUE_TYPE;
-
-
+    value_list->type = InternalNode::VALUE_TUPLE;
     auto value_item = std::make_unique<ASTNode>();
     auto idToken = expectLiteral(tokens, pos);
     value_item->type = ValueType::LITERAL;
     value_item->value = idToken.lexeme;
     value_list->children.push_back(std::move(value_item));
-
+    
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
         auto nextToken = expectLiteral(tokens, pos);
@@ -97,7 +95,6 @@ std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_
         next_value_item->value = nextToken.lexeme;
         value_list->children.push_back(std::move(next_value_item));
     }
-
     expect(tokens, pos, TokenType::RPAREN);
     return value_list;
 }

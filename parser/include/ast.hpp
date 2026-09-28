@@ -22,7 +22,7 @@ enum class ExpressionType {
 };
 
 enum class InternalNode {
-   VALUE_TYPE, ORDER_ITEM
+   VALUE_TUPLE, ORDER_ITEM
 };
 
 enum class ValueType {

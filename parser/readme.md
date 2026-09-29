@@ -384,11 +384,17 @@ value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING
 
-SelectStat       := SELECT column_list from_clause where_clause? group_by_clause?
+SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
+projection_list  := projection_item (COMMA projection_item)*
+projection_item  := (column | function_call)
+function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
+arg_list         := STAR | arg_item (COMMA arg_item)*
+arg_item         := IDENTIFIER | literal
+
 column_list       := column (COMMA column)*
-column            := IDENTIFIER alias?
+column            := IDENTIFIER  alias?
 
 from_clause       := FROM relation (COMMA relation)* joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition

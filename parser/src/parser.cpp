@@ -181,7 +181,7 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
             auto function = parseFunctionCall(tokens, pos);
             projList.push_back(std::move(function));
         }
-        else{
+        else {
             auto column = parseColumn(tokens, pos);
             projList.push_back(std::move(column));
         }

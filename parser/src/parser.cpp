@@ -154,6 +154,15 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
     return root;
 }
 
+std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens,pos, TokenType::DISTINCT);
+
+    auto distinctNode = std::make_unique<ASTNode>();
+    distinctNode->type = Clauses::DISTINCT;
+
+    return distinctNode;
+}
+
 std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> projList;
 
@@ -180,7 +189,7 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
     return projList;
 }
 
-std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, size_t& pos){
+std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, size_t& pos, bool allow_alias){
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
     auto function = std::make_unique<ASTNode>();
     function->type = ValueType::FUNCTION;
@@ -197,7 +206,7 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
     }
     expect(tokens, pos, TokenType::RPAREN);
 
-    if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
+    if((allow_alias) && (check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER))){
         auto alias = parseAlias(tokens, pos);
         function->children.push_back(std::move(alias));
     }
@@ -377,11 +386,16 @@ std::unique_ptr<ASTNode> parseComparison(const std::vector<Token>& tokens, size_
 
 std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& pos){
     auto op = std::make_unique<ASTNode>();
-    if(check(tokens, pos, TokenType::IDENTIFIER)){
+    if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+        op = parseFunctionCall(tokens, pos, false);
+    }
+
+    else if(check(tokens, pos, TokenType::IDENTIFIER)){
         auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
         op->type = ValueType::COLUMN;
         op->value = idToken.lexeme;
     }
+
     else if(check(tokens, pos, TokenType::STRING)){
         auto idToken = expect(tokens, pos, TokenType::STRING);
         op->type = ValueType::LITERAL;
@@ -445,41 +459,6 @@ std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token> &tokens, si
     return orderby;
 }
 
-std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t& pos){
-    auto order_item = std::make_unique<ASTNode>();
-    order_item->type = InternalNode::ORDER_ITEM;
-    if(check(tokens, pos, TokenType::IDENTIFIER)){
-        Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-        auto col = std::make_unique<ASTNode>();
-        col->type = ValueType::COLUMN;
-        col->value = idToken.lexeme;
-        order_item->children.push_back(std::move(col));
-    }
-    else{
-        Token posToken = expect(tokens, pos, TokenType::NUMBER);
-
-        auto posNode = std::make_unique<ASTNode>();
-        posNode->type = ValueType::POSITION;
-        posNode->value = posToken.lexeme;
-        order_item->children.push_back(std::move(posNode));
-    }
-    auto sortDir = std::make_unique<ASTNode>();
-    if (check(tokens, pos, TokenType::DESC)){
-        expect(tokens, pos, TokenType::DESC);
-        sortDir->type = OrderDirection::DESC;
-        order_item->children.push_back(std::move(sortDir));
-    }
-    else{
-        if (check(tokens, pos, TokenType::ASC)){
-            //consume ASC if present
-            expect(tokens, pos, TokenType::ASC);
-        }
-        sortDir->type = OrderDirection::ASC;
-        order_item->children.push_back(std::move(sortDir));
-    }
-    return order_item;
-}
-
 std::unique_ptr<ASTNode> parseJoinClause(const std::vector<Token> &tokens, size_t& pos){
     auto join = std::make_unique<ASTNode>();
     if(check(tokens, pos, TokenType::LEFT)){
@@ -533,12 +512,39 @@ std::unique_ptr<ASTNode> parseHavingClause(const std::vector<Token> &tokens, siz
     return havingNode;
 }
 
-std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, size_t& pos){
-    expect(tokens,pos, TokenType::DISTINCT);
 
-    auto distinctNode = std::make_unique<ASTNode>();
-    distinctNode->type = Clauses::DISTINCT;
+std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t& pos){
+    auto order_item = std::make_unique<ASTNode>();
+    order_item->type = InternalNode::ORDER_ITEM;
+    if(check(tokens, pos, TokenType::IDENTIFIER)){
+        Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+        auto col = std::make_unique<ASTNode>();
+        col->type = ValueType::COLUMN;
+        col->value = idToken.lexeme;
+        order_item->children.push_back(std::move(col));
+    }
+    else{
+        Token posToken = expect(tokens, pos, TokenType::NUMBER);
 
-    return distinctNode;
+        auto posNode = std::make_unique<ASTNode>();
+        posNode->type = ValueType::POSITION;
+        posNode->value = posToken.lexeme;
+        order_item->children.push_back(std::move(posNode));
+    }
+    auto sortDir = std::make_unique<ASTNode>();
+    if (check(tokens, pos, TokenType::DESC)){
+        expect(tokens, pos, TokenType::DESC);
+        sortDir->type = OrderDirection::DESC;
+        order_item->children.push_back(std::move(sortDir));
+    }
+    else{
+        if (check(tokens, pos, TokenType::ASC)){
+            //consume ASC if present
+            expect(tokens, pos, TokenType::ASC);
+        }
+        sortDir->type = OrderDirection::ASC;
+        order_item->children.push_back(std::move(sortDir));
+    }
+    return order_item;
 }
 

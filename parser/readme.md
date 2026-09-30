@@ -409,7 +409,7 @@ or_expr           := and_expr (OR and_expr)*
 and_expr          := comparison (AND comparison)*
 comparison        := operand comparator operand
 comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
-operand           := IDENTIFIER | NUMBER | STRING
+operand           := function_call | IDENTIFIER | NUMBER | STRING
 
 group_by_clause   := GROUP BY column_list
 order_by_clause   := ORDER BY order_item (COMMA order_item)*

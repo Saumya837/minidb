@@ -110,12 +110,12 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         root->children.push_back(std::move(distinctNode));
     }
 
-    std::vector<std::unique_ptr<ASTNode>> columnList = parseColumnList(tokens, pos);
+    std::vector<std::unique_ptr<ASTNode>> projList = parseProjectionList(tokens, pos);
     auto fromNode = parseFromClause(tokens, pos);
     root->children.push_back(std::move(fromNode));
 
-    for(auto& col : columnList) {
-        root->children.push_back(std::move(col));
+    for(auto& projection : projList) {
+        root->children.push_back(std::move(projection));
     }
     
     if (check(tokens, pos, TokenType::WHERE)){
@@ -130,11 +130,6 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         hasGroupBy = true;
     }
 
-    if(check(tokens, pos, TokenType::ORDER)){
-        auto order_by = parseOrderByClause(tokens, pos);
-        root->children.push_back(std::move(order_by));
-    }
-
     if(check(tokens, pos, TokenType::HAVING)){
         if(hasGroupBy){
             auto havingNode = parseHavingClause(tokens, pos);
@@ -143,6 +138,11 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
         else{
             throw std::runtime_error("HAVING clause cannot exist without GROUP BY");
         }
+    }
+
+    if(check(tokens, pos, TokenType::ORDER)){
+        auto order_by = parseOrderByClause(tokens, pos);
+        root->children.push_back(std::move(order_by));
     }
 
     if (check(tokens, pos, TokenType::LIMIT)){
@@ -154,33 +154,107 @@ std::unique_ptr<ASTNode> parseSelectStatement(const std::vector<Token>& tokens, 
     return root;
 }
 
-std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& tokens, size_t& pos){
-    std::vector<std::unique_ptr<ASTNode>> columnList;
+std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos){
+    std::vector<std::unique_ptr<ASTNode>> projList;
 
+    if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+        auto function = parseFunctionCall(tokens, pos);
+        projList.push_back(std::move(function));
+    }
+    else{
+        auto column = parseColumn(tokens, pos);
+        projList.push_back(std::move(column));
+    }
+        
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+            auto function = parseFunctionCall(tokens, pos);
+            projList.push_back(std::move(function));
+        }
+        else{
+            auto column = parseColumn(tokens, pos);
+            projList.push_back(std::move(column));
+        }
+    }
+    return projList;
+}
+
+std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, size_t& pos){
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-    auto first_column = std::make_unique<ASTNode>();
-    first_column->type = ValueType::COLUMN;
-    first_column->value = idToken.lexeme;
+    auto function = std::make_unique<ASTNode>();
+    function->type = ValueType::FUNCTION;
+    function->value = idToken.lexeme;
+
+    expect(tokens, pos, TokenType::LPAREN);
+    if(check(tokens, pos, TokenType::STAR)){
+        expect(tokens, pos, TokenType::STAR);
+    }
+    else{
+        auto argsList = parseArgsList(tokens, pos);
+        for (auto &arg :argsList)
+            function->children.push_back(std::move(arg));
+    }
+    expect(tokens, pos, TokenType::RPAREN);
 
     if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
         auto alias = parseAlias(tokens, pos);
-        first_column->children.push_back(std::move(alias));
+        function->children.push_back(std::move(alias));
     }
 
+    return function;
+}
+
+std::vector<std::unique_ptr<ASTNode>> parseArgsList(const std::vector<Token>& tokens, size_t& pos){
+    std::vector<std::unique_ptr<ASTNode>> argsList;
+    auto first_arg= parseArg(tokens, pos);
+    argsList.push_back(std::move(first_arg));
+
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto next_arg = parseArg(tokens, pos);
+        argsList.push_back(std::move(next_arg));
+    }
+    return argsList;
+}
+
+std::unique_ptr<ASTNode> parseArg(const std::vector<Token>& tokens, size_t& pos){
+    auto arg = std::make_unique<ASTNode>();
+    if(check(tokens, pos, TokenType::IDENTIFIER)){
+        Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+        arg->type = ValueType::COLUMN;
+        arg->value = idToken.lexeme;
+    }
+    else {
+        Token idToken = expectLiteral(tokens, pos);
+        arg->type = ValueType::LITERAL;
+        arg->value = idToken.lexeme;
+    }
+    return arg;
+}
+
+std::unique_ptr<ASTNode> parseColumn(const std::vector<Token> &tokens, size_t& pos){
+    Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    auto column = std::make_unique<ASTNode>();
+    column->type = ValueType::COLUMN;
+    column->value = idToken.lexeme;
+
+    if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
+        auto alias = parseAlias(tokens, pos);
+        column->children.push_back(std::move(alias));
+    }
+    return column;
+}
+
+std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& tokens, size_t& pos){
+    std::vector<std::unique_ptr<ASTNode>> columnList;
+
+    auto first_column = parseColumn(tokens, pos);
     columnList.push_back(std::move(first_column));
 
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
-        auto nextId = expect(tokens, pos, TokenType::IDENTIFIER);
-        auto next_col = std::make_unique<ASTNode>();
-        next_col->type = ValueType::COLUMN;
-        next_col->value = nextId.lexeme;
-
-        if(check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER)){
-            auto alias = parseAlias(tokens, pos);
-            next_col->children.push_back(std::move(alias));
-        }
-
+        auto next_col = parseColumn(tokens, pos);
         columnList.push_back(std::move(next_col));
     }
     return columnList;
@@ -455,8 +529,6 @@ std::unique_ptr<ASTNode> parseHavingClause(const std::vector<Token> &tokens, siz
 
     auto comparsion = parseOrExpr(tokens, pos);
 
-   // TODO: aggregation support (COUNT(*), SUM(x), etc. as operands)
-
     havingNode->children.push_back(std::move(comparsion));
     return havingNode;
 }
@@ -469,3 +541,4 @@ std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, s
 
     return distinctNode;
 }
+

@@ -1,7 +1,7 @@
-// #include "catalog.hpp"
+#include "catalog.hpp"
 
 
-// std::string foldIdentifier(std::string name){
-//     =  uppercase(name);
+std::string foldIdentifier(std::string name){
+         =  uppercase(name);
 
-// }
+}

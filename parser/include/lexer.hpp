@@ -19,7 +19,7 @@ enum class TokenType {
 
     ASC, DESC, LEFT, RIGHT,
     
-    ON, AS, HAVING, LPAREN, RPAREN
+    ON, AS, HAVING, LPAREN, RPAREN, STAR
 };
 
 struct Token {

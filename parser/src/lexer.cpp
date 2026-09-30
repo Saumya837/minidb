@@ -36,6 +36,12 @@ std::vector<Token> tokenize(const std::string &sql){
             continue;
         }
 
+        else if (c == '*'){
+            tokens.push_back(Token{TokenType::STAR, "*"});
+            pos++;
+            continue;
+        }
+
         else if (std::isalpha(static_cast<unsigned char>(c)) or c == '_') {
             std::string lexeme = "";
             while((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])) || std::isalpha(static_cast<unsigned char>(sql[pos])) || sql[pos] == '_' || sql[pos] == '.')){
@@ -89,6 +95,7 @@ std::vector<Token> tokenize(const std::string &sql){
             pos++;
             continue;
         }
+
 
         else if (c == ')'){
             tokens.push_back(Token{TokenType::RPAREN, ")"});

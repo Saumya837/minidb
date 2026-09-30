@@ -26,7 +26,7 @@ enum class InternalNode {
 };
 
 enum class ValueType {
-    COLUMN, LITERAL, POSITION, ALIAS
+    COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION
 };
 
 enum class OrderDirection {

@@ -195,14 +195,19 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
     function->type = ValueType::FUNCTION;
     function->value = idToken.lexeme;
 
+
     expect(tokens, pos, TokenType::LPAREN);
     if(check(tokens, pos, TokenType::STAR)){
         expect(tokens, pos, TokenType::STAR);
     }
     else{
-        auto argsList = parseArgsList(tokens, pos);
-        for (auto &arg :argsList)
-            function->children.push_back(std::move(arg));
+        auto arg_list = std::make_unique<ASTNode>();
+        arg_list->type = InternalNode::ARG_LIST;
+        auto args = parseArgsList(tokens, pos);
+        for (auto &arg :args){
+            arg_list->children.push_back(std::move(arg));
+        }
+        function->children.push_back(std::move(arg_list));   
     }
     expect(tokens, pos, TokenType::RPAREN);
 
@@ -216,7 +221,7 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
 
 std::vector<std::unique_ptr<ASTNode>> parseArgsList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> argsList;
-    auto first_arg= parseArg(tokens, pos);
+    auto first_arg = parseArg(tokens, pos);
     argsList.push_back(std::move(first_arg));
 
     while(check(tokens, pos, TokenType::COMMA)){
@@ -229,7 +234,12 @@ std::vector<std::unique_ptr<ASTNode>> parseArgsList(const std::vector<Token>& to
 
 std::unique_ptr<ASTNode> parseArg(const std::vector<Token>& tokens, size_t& pos){
     auto arg = std::make_unique<ASTNode>();
-    if(check(tokens, pos, TokenType::IDENTIFIER)){
+
+    if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+        arg = parseFunctionCall(tokens, pos, false);
+    }
+
+    else if(check(tokens, pos, TokenType::IDENTIFIER)){
         Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
         arg->type = ValueType::COLUMN;
         arg->value = idToken.lexeme;
@@ -539,7 +549,6 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
     }
     else{
         if (check(tokens, pos, TokenType::ASC)){
-            //consume ASC if present
             expect(tokens, pos, TokenType::ASC);
         }
         sortDir->type = OrderDirection::ASC;

@@ -72,6 +72,7 @@ std::string tagToString(const ASTTag& tag){
                 // To Make it future Proof and modular kept it switch even though only One option of InternalNode is present
                 case InternalNode::ORDER_ITEM: return "ORDER_ITEM";
                 case InternalNode::VALUE_TUPLE: return "VALUE_TUPLE";
+                case InternalNode::ARG_LIST: return "ARG_LIST";
             }
         }
     }, tag);

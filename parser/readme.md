@@ -574,7 +574,7 @@ star_projection  := (IDENTIFIER DOT)? STAR
 
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := IDENTIFIER | literal
+arg_item         := function_call | IDENTIFIER | literal
 
 column_list       := column (COMMA column)*
 column            := IDENTIFIER alias?

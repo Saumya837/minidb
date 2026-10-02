@@ -1,6 +1,69 @@
 #include "parser.hpp"
 
-namespace{
+namespace {
+    std::string tokenTypeToString(TokenType type) {
+        switch (type) {
+            case TokenType::SELECT:         return "SELECT";
+            case TokenType::INSERT:         return "INSERT";
+            case TokenType::UPDATE:         return "UPDATE";
+            case TokenType::DELETE:         return "DELETE";
+            case TokenType::CREATE:         return "CREATE";
+            case TokenType::ALTER:          return "ALTER";
+            case TokenType::DROP:           return "DROP";
+            case TokenType::FROM:           return "FROM";
+            case TokenType::WHERE:          return "WHERE";
+            case TokenType::GROUP:          return "GROUP";
+            case TokenType::BY:             return "BY";
+            case TokenType::ORDER:          return "ORDER";
+            case TokenType::LIMIT:          return "LIMIT";
+            case TokenType::AND:            return "AND";
+            case TokenType::OR:             return "OR";
+            case TokenType::TABLE:          return "TABLE";
+            case TokenType::JOIN:           return "JOIN";
+            case TokenType::HAVING:         return "HAVING";
+            case TokenType::AS:             return "AS";
+            case TokenType::ON:             return "ON";
+            case TokenType::LEFT:           return "LEFT";
+            case TokenType::RIGHT:          return "RIGHT";
+            case TokenType::INTO:           return "INTO";
+            case TokenType::VALUES:         return "VALUES";
+            case TokenType::DISTINCT:       return "DISTINCT";
+            case TokenType::IDENTIFIER:     return "an identifier";
+            case TokenType::NUMBER:         return "a number";
+            case TokenType::STRING:         return "a string";
+            case TokenType::EQUALS:         return "'='";
+            case TokenType::GREATER:        return "'>'";
+            case TokenType::SMALLER:        return "'<'";
+            case TokenType::GREATER_EQUAL:  return "'>='";
+            case TokenType::LESSER_EQUAL:   return "'<='";
+            case TokenType::COMMA:          return "','";
+            case TokenType::SEMICOLON:      return "';'";
+            case TokenType::LPAREN:         return "'('";
+            case TokenType::RPAREN:         return "')'";
+            case TokenType::STAR:           return "'*'";
+            case TokenType::ASC:            return "ASC";
+            case TokenType::DESC:           return "DESC";
+            case TokenType::END_OF_INPUT:   return "end of input";
+            case TokenType::UNKNOWN:        return "an unknown token";
+            default:                        return "unknown token type";
+        }
+    }
+
+    std::string syntaxErrorLocation(const std::vector<Token>& tokens, size_t pos) {
+        if (tokens[pos].type == TokenType::END_OF_INPUT) {
+            return "unexpected end of input";
+        }
+        return "at or near \"" + tokens[pos].lexeme + "\"";
+    }
+
+
+    std::string token_to_string(const std::vector<Token>& tokens, size_t pos) {
+        if (tokens[pos].type == TokenType::END_OF_INPUT) {
+            return "end of input";
+        }
+        return tokens[pos].lexeme;
+    }
+
     bool check(const std::vector<Token>& tokens, size_t pos, TokenType type) {
         if (pos >= tokens.size()) return false;
         return tokens[pos].type == type;
@@ -12,9 +75,8 @@ namespace{
         else if (tokens[pos].type == type){
             return tokens[pos++];
         }
-        else{
-            throw std::runtime_error("Expected token type " + std::to_string(static_cast<int>(type)) + " but found " + tokens[pos].lexeme + "' at position " + std::to_string(pos));
-        }
+        throw std::runtime_error("Syntax error at or near \"" + token_to_string(tokens, pos) + "\": expected "
+        + tokenTypeToString(type));
     }
 
     Token expectLiteral(const std::vector<Token> &tokens, size_t &pos){
@@ -166,6 +228,7 @@ std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, s
 std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> projList;
 
+
     if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
         auto function = parseFunctionCall(tokens, pos);
         projList.push_back(std::move(function));
@@ -177,6 +240,12 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
         
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
+
+        if (!check(tokens, pos, TokenType::IDENTIFIER)) {
+            throw std::runtime_error("Syntax error at or near \"" + token_to_string(tokens, pos)
+                                        + "\": expected a column or function after ','");
+        }
+
         if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
             auto function = parseFunctionCall(tokens, pos);
             projList.push_back(std::move(function));
@@ -465,7 +534,6 @@ std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token> &tokens, si
         auto next_order_item = parseOrderItem(tokens, pos);
         orderby->children.push_back(std::move(next_order_item));
     }
-
     return orderby;
 }
 
@@ -522,7 +590,6 @@ std::unique_ptr<ASTNode> parseHavingClause(const std::vector<Token> &tokens, siz
     return havingNode;
 }
 
-
 std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t& pos){
     auto order_item = std::make_unique<ASTNode>();
     order_item->type = InternalNode::ORDER_ITEM;
@@ -535,7 +602,6 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
     }
     else{
         Token posToken = expect(tokens, pos, TokenType::NUMBER);
-
         auto posNode = std::make_unique<ASTNode>();
         posNode->type = ValueType::POSITION;
         posNode->value = posToken.lexeme;

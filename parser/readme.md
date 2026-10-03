@@ -569,7 +569,7 @@ SelectStat       := SELECT projection_list from_clause where_clause? group_by_cl
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := column | function_call | star_projection
+projection_item  := STAR | column | function_call | star_projection
 star_projection  := (IDENTIFIER DOT)? STAR
 
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
@@ -1246,6 +1246,11 @@ SELECT department FROM employees GROUP BY department HAVING SUM(salary) AS s > 5
 -- Query 21 (function calls in the projection list, combined with GROUP BY/HAVING/ORDER BY)
 SELECT department, COUNT(*), SUM(salary) FROM employees
   GROUP BY department HAVING department = 'CSE' ORDER BY department DESC;
+
+--
+SELECT emp.department, emp.salary, mang.* FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id
+  WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

@@ -56,14 +56,6 @@ namespace {
         return "at or near \"" + tokens[pos].lexeme + "\"";
     }
 
-
-    std::string token_to_string(const std::vector<Token>& tokens, size_t pos) {
-        if (tokens[pos].type == TokenType::END_OF_INPUT) {
-            return "end of input";
-        }
-        return tokens[pos].lexeme;
-    }
-
     bool check(const std::vector<Token>& tokens, size_t pos, TokenType type) {
         if (pos >= tokens.size()) return false;
         return tokens[pos].type == type;
@@ -75,8 +67,11 @@ namespace {
         else if (tokens[pos].type == type){
             return tokens[pos++];
         }
-        throw std::runtime_error("Syntax error at or near \"" + token_to_string(tokens, pos) + "\": expected "
-        + tokenTypeToString(type));
+        else{
+            throw std::runtime_error(
+                "Syntax error: " + syntaxErrorLocation(tokens, pos) + ", expected "
+                + tokenTypeToString(type));
+        }
     }
 
     Token expectLiteral(const std::vector<Token> &tokens, size_t &pos){
@@ -225,30 +220,88 @@ std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token> &tokens, s
     return distinctNode;
 }
 
+std::unique_ptr<ASTNode> parseStar(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::STAR);
+    auto starNode = std::make_unique<ASTNode>();
+    starNode->type = ValueType::STAR;
+    return starNode;
+}
+
+std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t& pos){
+   const std::string& current_token = tokens[pos].lexeme;
+    size_t len = current_token.find('.');
+
+    if (current_token.find('.', len + 1) != std::string::npos ||
+        len == 0 || len == current_token.size() - 1)
+        throw std::runtime_error("invalid identifier: " + current_token);
+
+    if (current_token.substr(len + 1) != "*") {
+        // Not a qualified star - shape is valid, but leave the token
+        // untouched so parseColumn consumes it normally.
+        return nullptr;
+    }
+
+    auto qualifier = std::make_unique<ASTNode>();
+    qualifier->type = InternalNode::QUALIFIER;
+    qualifier->value = current_token.substr(0, len);
+
+    auto starNode = std::make_unique<ASTNode>();
+    starNode->type = ValueType::STAR;
+    starNode->children.push_back(std::move(qualifier));
+
+    pos++;  // we decided this token is a qualified star, so we're the ones consuming it
+
+    return starNode;
+}
+
 std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> projList;
 
-
-    if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+    if(check(tokens, pos, TokenType::STAR)){
+        auto starNode = parseStar(tokens, pos);
+        projList.push_back(std::move(starNode));
+    }
+    else if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
         auto function = parseFunctionCall(tokens, pos);
         projList.push_back(std::move(function));
+    }
+    else if(tokens[pos].lexeme.find('.') != std::string::npos){
+        auto qualifierStar = parseQualifier(tokens, pos);
+        if(qualifierStar){
+            projList.push_back(std::move(qualifierStar));
+        } else {
+            auto column = parseColumn(tokens, pos);
+            projList.push_back(std::move(column));
+        }
     }
     else{
         auto column = parseColumn(tokens, pos);
         projList.push_back(std::move(column));
     }
-        
+
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
 
-        if (!check(tokens, pos, TokenType::IDENTIFIER)) {
-            throw std::runtime_error("Syntax error at or near \"" + token_to_string(tokens, pos)
-                                        + "\": expected a column or function after ','");
+        if(check(tokens, pos, TokenType::STAR)){
+            auto starNode = parseStar(tokens, pos);
+            projList.push_back(std::move(starNode));
         }
-
-        if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
+        else if (!check(tokens, pos, TokenType::IDENTIFIER)) {
+            throw std::runtime_error( "Syntax error: " + syntaxErrorLocation(tokens, pos)
+                + ", expected a column or function after ','");
+        }
+        else if(check(tokens, pos+1, TokenType::LPAREN)){
             auto function = parseFunctionCall(tokens, pos);
             projList.push_back(std::move(function));
+        }
+        else if(tokens[pos].lexeme.find('.') != std::string::npos){
+            auto qualifierStar = parseQualifier(tokens, pos);
+            if(qualifierStar){
+                projList.push_back(std::move(qualifierStar));
+            } else {
+                auto column = parseColumn(tokens, pos);
+                projList.push_back(std::move(column));
+            }
         }
         else {
             auto column = parseColumn(tokens, pos);
@@ -287,6 +340,7 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
 
     return function;
 }
+
 
 std::vector<std::unique_ptr<ASTNode>> parseArgsList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> argsList;

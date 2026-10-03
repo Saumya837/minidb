@@ -73,6 +73,7 @@ std::string tagToString(const ASTTag& tag){
                 case InternalNode::ORDER_ITEM: return "ORDER_ITEM";
                 case InternalNode::VALUE_TUPLE: return "VALUE_TUPLE";
                 case InternalNode::ARG_LIST: return "ARG_LIST";
+                case InternalNode::QUALIFIER: return "QUALIFIER";
             }
         }
     }, tag);

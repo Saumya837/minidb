@@ -44,7 +44,8 @@ std::vector<Token> tokenize(const std::string &sql){
 
         else if (std::isalpha(static_cast<unsigned char>(c)) or c == '_') {
             std::string lexeme = "";
-            while((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])) || std::isalpha(static_cast<unsigned char>(sql[pos])) || sql[pos] == '_' || sql[pos] == '.')){
+            while((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])) || std::isalpha(static_cast<unsigned char>(sql[pos]))
+                                     || sql[pos] == '_' || sql[pos] == '.' || sql[pos] == '*')){
                 lexeme += sql[pos];
                 pos++;
             }

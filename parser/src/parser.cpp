@@ -464,6 +464,7 @@ std::unique_ptr<ASTNode>  parseOrExpr(const std::vector<Token>& tokens, size_t&p
         or_node->children.push_back(std::move(and_node2));
         return or_node;
     }
+    
     return and_node1;
 }
 
@@ -615,7 +616,7 @@ std::unique_ptr<ASTNode> parseJoinClause(const std::vector<Token> &tokens, size_
     }
 
     expect(tokens, pos, TokenType::ON);
-    auto cmp = parseComparison(tokens, pos);
+    auto cmp = parseOrExpr(tokens, pos);
     join->children.push_back(std::move(cmp));
     return join;
 }

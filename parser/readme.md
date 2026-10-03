@@ -777,11 +777,12 @@ than aborting the whole session — one typo shouldn't force a restart.
       / `parseArg()` — function calls in the `SELECT` list (`COUNT(*)`,
       `SUM(x)`, with or without alias) and as comparison operands in
       `WHERE`/`HAVING` (`HAVING SUM(salary) > 5000`)
+- [x] `SELECT *`
 
 **Not yet done:**
 - [ ] Compound `ON` conditions (`ON a.id = b.id AND a.active = true`) —
       currently single-comparison only
-- [ ] `SELECT *`
+
 - [ ] Non-`SELECT`/`INSERT` statements (`UPDATE`, `DELETE`, `CREATE`,
       `ALTER`, `DROP`) — dispatcher stubs only
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract

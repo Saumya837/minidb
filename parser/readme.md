@@ -37,9 +37,9 @@ enum class StatementType  { SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP 
 enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT };
 enum class Relations      { TABLE, JOIN, LEFT_JOIN, RIGHT_JOIN };
 enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR };
-enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION };
+enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION, STAR };
 enum class OrderDirection { ASC, DESC };
-enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE };
+enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE, ARG_LIST, QUALIFIER };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType,
                              ValueType, OrderDirection, InternalNode>;
@@ -54,7 +54,7 @@ so the type should reflect that closed set rather than accepting any enum.
 ```cpp
 struct ASTNode {
     ASTTag type;
-    std::string value;                               
+    std::string value;                                // e.g. "salary", "5000", "employees"
     std::vector<std::unique_ptr<ASTNode>> children;
 };
 ```
@@ -114,7 +114,9 @@ enum class InternalNode { ORDER_ITEM };
 ```
 Any future wrapper/grouping node that exists only for tree structure
 (not because a keyword demands it) belongs in `InternalNode`. (`VALUE_TUPLE`,
-added later for `INSERT`, is the second member of this enum — see below.)
+added later for `INSERT`, is the second member of this enum — see below.
+`QUALIFIER`, added for qualified star support, is the third — see
+**`SELECT *` and qualified star** below.)
 
 **Position-based ordering (`ORDER BY 2`)** gets its own `ValueType`
 member rather than reusing `LITERAL`:
@@ -162,10 +164,56 @@ Comma-separated relations (`FROM a, b`) need no such wrapper — they
 become flat `TABLE` siblings under `FROM`, since there's no per-item
 data to bundle, unlike a join's condition.
 
-`ON`'s condition currently goes through `parseComparison` (a single
-comparison only) rather than the full `parseOrExpr` chain — compound
-`ON` conditions (`ON a.id = b.id AND a.active = true`) are not yet
-supported. This is a known follow-up (see **Status**).
+**`ON` now accepts compound `AND`/`OR` conditions.** `ON` originally
+called `parseComparison` directly — a single `column OP column` only.
+Fixed by pointing `ON` at the same `parseOrExpr` entry point `WHERE` and
+`HAVING` already use, so `ON a.id = b.id AND a.active = true` (and
+arbitrary `AND`/`OR` nesting) now parses with the same precedence rules
+as everywhere else in the grammar:
+```sql
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON emp.dept_id = mang.dept_id AND emp.location = mang.location;
+```
+```
+FROM
+├─> TABLE: employees
+│   └─> ALIAS: emp
+└─> LEFT_JOIN
+    ├─> TABLE: manager
+    │   └─> ALIAS: mang
+    └─> AND
+        ├─> EQUALS
+        │   ├─> COLUMN: emp.dept_id
+        │   └─> COLUMN: mang.dept_id
+        └─> EQUALS
+            ├─> COLUMN: emp.location
+            └─> COLUMN: mang.location
+```
+`OR` binds looser than `AND` inside `ON`, same as everywhere else, since
+this is the exact same `or_expr`/`and_expr` chain, not a parallel
+implementation:
+```sql
+... ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
+```
+```
+OR
+├─> EQUALS
+│   ├─> COLUMN: emp.id
+│   └─> COLUMN: mang.id
+└─> AND
+    ├─> EQUALS
+    │   ├─> COLUMN: emp.backup_manager_id
+    │   └─> COLUMN: mang.id
+    └─> EQUALS
+        ├─> COLUMN: emp.active
+        └─> LITERAL: 1
+```
+No grammar *text* change was needed for this — the written grammar
+always said `ON condition` with `condition := or_expr`. The bug was that
+the code didn't match its own grammar: `ON` was wired to `parseComparison`
+instead of `parseOrExpr`. Known gap that remains: no parenthesized
+expressions, so `(a OR b) AND c` can't be written explicitly — see
+**Status**.
 
 ### Column and table aliases (`AS`)
 
@@ -423,6 +471,140 @@ Both bugs came from the same root cause — reusing a parser function for
 its convenience without checking whether the grammar rule at the call
 site actually authorized everything that function does.
 
+> **Note — not yet reflected here:** nested function calls as arguments
+> (`COALESCE(SUM(salary), 0)`) and the `ARG_LIST` wrapper node that went
+> with them, plus the Postgres-style syntax-error-message work
+> (`syntaxErrorLocation`/`tokenTypeToString`), both landed before the
+> `SELECT *` work below but haven't been written up here yet. Flagging
+> as a known doc gap, separate from today's update.
+
+### `SELECT *` and qualified star (`table.*`)
+
+```
+projection_item := STAR | function_call | column
+```
+A bare `*` and a table-qualified `table.*` both surface structurally as
+a `STAR` node — `*` alone, `table.*` with a `QUALIFIER` child:
+```
+select id, * from employee;
+```
+```
+├─> COLUMN: id
+└─> STAR
+```
+```
+select emp.* from employee emp;
+```
+```
+└─> STAR
+    └─> QUALIFIER: emp
+```
+
+**Tokenization: no new token type.** `emp.*` is lexed exactly the same
+way `emp.name` already was — the lexer's identifier scan swallows
+letters, digits, `_`, `.`, and `*` into one greedy token, so `emp.*`
+arrives as a single `IDENTIFIER`-shaped token with lexeme `"emp.*"`.
+A dedicated `DOT` token (splitting `emp.*` into three tokens at lex
+time) was considered and rejected — it would mean the lexer forking its
+scanning behavior based on *what* follows a dot, which is backwards for
+a stage that's supposed to only classify characters, not interpret
+content. Disambiguating "is this plain, qualified, or a qualified star"
+stays entirely a parse-time decision, made once, uniformly, for both
+`STAR` and `COLUMN`.
+
+**`parseQualifier`'s asymmetric consumption contract.** It's given the
+token's lexeme already known to contain a `.` (callers check that
+before calling), and makes one of two decisions:
+```cpp
+std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token>& tokens, size_t& pos){
+    const std::string& current_token = tokens[pos].lexeme;
+    size_t len = current_token.find('.');
+
+    if (current_token.find('.', len + 1) != std::string::npos ||
+        len == 0 || len == current_token.size() - 1)
+        throw std::runtime_error("invalid identifier: " + current_token);
+
+    if (current_token.substr(len + 1) != "*") {
+        // Not a qualified star - shape is valid, but leave the token
+        // untouched so parseColumn consumes it normally.
+        return nullptr;
+    }
+
+    auto qualifier = std::make_unique<ASTNode>();
+    qualifier->type = InternalNode::QUALIFIER;
+    qualifier->value = current_token.substr(0, len);
+
+    auto starNode = std::make_unique<ASTNode>();
+    starNode->type = ValueType::STAR;
+    starNode->children.push_back(std::move(qualifier));
+
+    pos++;  // we decided this token is a qualified star, so we consume it
+
+    return starNode;
+}
+```
+- Rejects malformed shapes up front: `emp..id`, `emp.`, `.id` (multiple
+  dots, or an empty side).
+- If the suffix after the dot is `*`: builds the full `STAR` node
+  (with its `QUALIFIER` child) itself, and advances `pos` itself — it's
+  the one deciding this token means something `parseStar` alone
+  wouldn't recognize, so it owns consuming it.
+- Otherwise: returns `nullptr` **without** advancing `pos`, leaving the
+  original token untouched for `parseColumn` to consume normally right
+  after.
+
+This asymmetry — sometimes consuming, sometimes not — was a deliberate
+choice over the alternative of mutating the token stream in place
+(rewriting `tokens[pos]` from an `IDENTIFIER` with lexeme `"emp.*"` to a
+`STAR` with lexeme `"*"`, which an earlier version of this did). The
+mutation version worked, but only via a `const_cast` on a `tokens`
+reference declared `const` several call frames up — legal only because
+the underlying vector happened not to be truly `const` anywhere in the
+chain, and dishonest about what the function's own signature claimed.
+Returning a decision instead of rewriting shared state removes the need
+for that cast entirely.
+
+**Design decision: `QUALIFIER` is attached only to `STAR`, not to plain
+`COLUMN`.** A qualified column (`emp.id`) keeps its qualifier folded
+into the `COLUMN` node's `.value` string as-is, rather than split into a
+structural child the way `STAR` gets one. This is a real trade-off, not
+a free simplification: resolving `emp.id = mang.id` in a join needs the
+table qualifier just as much as `mang.*` does — the binder will have to
+re-derive the table name from the `COLUMN`'s string later (duplicating
+the same split logic `parseQualifier` already does) rather than reading
+a child node the way it can for `STAR`. Chosen anyway, for now, to keep
+`COLUMN` from gaining a child that's barely tested yet; worth revisiting
+once the binder actually needs to resolve qualified columns.
+
+**Three bugs caught while wiring this up**, all variations of "who
+actually advances the real parser cursor":
+1. An earlier attempt had the star-branch delegate to `parseStar` on a
+   throwaway one-element decoy `std::vector<Token>`, so the *real*
+   `pos` never moved — `parseStar` dutifully consumed the fake token,
+   leaving the real stream's cursor sitting exactly where it started.
+2. The plain-qualified-column case (dot present, suffix not `*`) had no
+   fallback branch at all in `parseProjectionList` for a while — when
+   `parseQualifier` correctly returned `nullptr`, nothing called
+   `parseColumn` to actually consume and build the column, so
+   `emp.dept` next to an unqualified column silently produced nothing.
+3. In the comma loop, the bare-`*` check and the "must be an
+   `IDENTIFIER`" trailing-comma guard were briefly two independent
+   `if`s instead of one `if`/`else if` chain, so successfully parsing
+   a bare `*` mid-list fell straight through into the guard, which then
+   threw a spurious "expected a column or function after ','" on
+   whatever token came *after* the star.
+
+```sql
+SELECT emp.department, emp.salary, mang.* FROM employees AS emp
+  LEFT JOIN manager AS mang ON emp.id = mang.id;
+```
+```
+├─> COLUMN: emp.department
+├─> COLUMN: emp.salary
+└─> STAR
+    └─> QUALIFIER: mang
+```
+
 ---
 
 ## Lexer
@@ -512,19 +694,23 @@ else if (sql[pos] == ')') { tokens.push_back({TokenType::RPAREN, ")"}); pos++; }
   producing a single decimal `NUMBER` token (`3000.50`). Without the
   lookahead, a trailing or dangling `.` (`5000.`, `5000.AND`) is left
   alone rather than guessed at.
-- **Letter/underscore** → accumulate into a word, including `.` as a
-  continuation character (not just letters/digits/underscore), so
-  qualified identifiers (`employees.dept_id`) tokenize as a single
-  `IDENTIFIER` rather than three tokens. Splitting a qualified name into
-  its table/column parts is deferred to a later stage (semantic
-  analysis), not the parser's concern. The word is uppercased and
-  looked up in `keywordTable`; matches become that keyword's
-  `TokenType`, otherwise `IDENTIFIER`.
+- **Letter/underscore** → accumulate into a word, including `.` *and*
+  `*` as continuation characters (not just letters/digits/underscore),
+  so qualified identifiers (`employees.dept_id`) and qualified stars
+  (`emp.*`) both tokenize as a single `IDENTIFIER`-shaped token rather
+  than several. Splitting that token into its qualifier/name (or
+  qualifier/star) parts is a parse-time decision (`parseQualifier`),
+  not the lexer's concern — see **`SELECT *` and qualified star**
+  above. The word is uppercased and looked up in `keywordTable`;
+  matches become that keyword's `TokenType`, otherwise `IDENTIFIER`.
 - `'...'` → `STRING` token, quotes stripped from the stored lexeme
 - `>`/`<` → peek the next character; if `=` follows, consume both and
   emit `GREATER_EQUAL`/`LESSER_EQUAL`, otherwise emit `GREATER`/`SMALLER`
 - `=`, `,`, `;`, `(`, `)`, `*` → single-character punctuation/operator
-  tokens
+  tokens (a bare `*` not preceded by a letter/underscore hits this
+  branch directly and becomes a `STAR` token immediately — only a
+  `*` that follows an identifier-starting word gets swallowed into that
+  word's lexeme instead, per the point above)
 - Anything unrecognized → throws `std::runtime_error`
 - Always appends a trailing `END_OF_INPUT` token
 
@@ -569,12 +755,10 @@ SelectStat       := SELECT projection_list from_clause where_clause? group_by_cl
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := STAR | column | function_call | star_projection
-star_projection  := (IDENTIFIER DOT)? STAR
-
+projection_item  := STAR | function_call | column
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := function_call | IDENTIFIER | literal
+arg_item         := IDENTIFIER | literal
 
 column_list       := column (COMMA column)*
 column            := IDENTIFIER alias?
@@ -611,8 +795,9 @@ would call itself forever without consuming a token). Layering
 precedence: `AND` always binds tighter than `OR`, since `and_expr` sits
 below `or_expr` in the call chain — matching standard SQL semantics for
 `A OR B AND C` meaning `A OR (B AND C)`. This same `or_expr` chain is
-reused, unmodified, by `HAVING` and (partially — see `JOIN` notes above)
-by `ON`.
+reused, unmodified, by `HAVING` and — as of the compound-`ON` fix above
+— fully by `ON` as well; all three clauses share one precedence
+implementation rather than three parallel ones.
 
 **Why `column_list` (used by `GROUP BY`/`ORDER BY`) stayed separate from
 `projection_list` (used by `SELECT`).** `GROUP BY SUM(x)` isn't valid
@@ -642,7 +827,10 @@ std::unique_ptr<ASTNode> parseX(const std::vector<Token>& tokens, size_t& pos);
 ```
 `pos` is passed by reference so each function's consumption is visible
 to its caller — standard recursive-descent threading. `tokens` stays
-`const&` since parsing only ever reads the stream, never mutates it.
+`const&` since parsing only ever reads the stream, never mutates it —
+including `parseQualifier` (see **`SELECT *` and qualified star**
+above), which decides what the stream *means* without ever writing to
+it.
 
 ### Private helpers — `check` / `expect`
 
@@ -749,8 +937,9 @@ than aborting the whole session — one typo shouldn't force a restart.
 **Done:**
 - [x] `TokenType`, `Token`, `keywordTable`
 - [x] `tokenize()` — whitespace, keywords, identifiers (incl. qualified
-      `table.column` form), numbers (incl. decimals), string literals,
-      comparison operators, punctuation (incl. `(`, `)`, `*`)
+      `table.column` and qualified-star `table.*` forms), numbers (incl.
+      decimals), string literals, comparison operators, punctuation
+      (incl. `(`, `)`, `*`)
 - [x] `ASTTag`, `ASTNode`, `printAST()`
 - [x] `check()` / `expect()` helpers
 - [x] `parseStatement()` dispatcher
@@ -760,10 +949,11 @@ than aborting the whole session — one typo shouldn't force a restart.
 - [x] `parseFromClause()` / `parseRelation()` — comma-separated
       relations, table aliases
 - [x] `parseJoinClause()` — `LEFT JOIN` / `RIGHT JOIN` / plain `JOIN`,
-      multi-join chains
+      multi-join chains, compound `AND`/`OR` conditions in `ON`
 - [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` /
       `parseComparison()` / `parseOperand()` — correct `AND`/`OR`
-      precedence, verified with mixed-precedence queries
+      precedence, verified with mixed-precedence queries, and shared
+      unmodified by `HAVING` and `ON`
 - [x] `parseGroupByClause()`
 - [x] `parseHavingClause()` — with `GROUP BY`-required validation
 - [x] `parseOrderByClause()` / `parseOrderItem()` — `ASC`/`DESC`
@@ -777,12 +967,17 @@ than aborting the whole session — one typo shouldn't force a restart.
       / `parseArg()` — function calls in the `SELECT` list (`COUNT(*)`,
       `SUM(x)`, with or without alias) and as comparison operands in
       `WHERE`/`HAVING` (`HAVING SUM(salary) > 5000`)
-- [x] `SELECT *`
+- [x] `SELECT *` — bare `*` and table-qualified `table.*`, both as a
+      `STAR` node (qualified form carries a `QUALIFIER` child); mixable
+      with ordinary columns in the same projection list
 
 **Not yet done:**
-- [ ] Compound `ON` conditions (`ON a.id = b.id AND a.active = true`) —
-      currently single-comparison only
-
+- [ ] Parenthesized expressions (`(a OR b) AND c`) — no way to
+      explicitly override `AND`/`OR` precedence
+- [ ] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
+      (`emp.id`) currently keep the qualifier folded into their
+      `.value` string rather than as a structural child; the binder
+      will need to re-split it when resolving joins
 - [ ] Non-`SELECT`/`INSERT` statements (`UPDATE`, `DELETE`, `CREATE`,
       `ALTER`, `DROP`) — dispatcher stubs only
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
@@ -1169,9 +1364,107 @@ Select
         └─> DESC
 ```
 
+**Verified end-to-end (Query 22 below) — qualified star:**
+```
+SQL> select emp.* from employee emp;
+Select
+├─> FROM
+│   └─> TABLE: employee
+│       └─> ALIAS: emp
+└─> STAR
+    └─> QUALIFIER: emp
+```
+
+**Verified end-to-end (Query 23 below) — qualified star mixed with qualified columns, across a join:**
+```
+SQL> SELECT emp.department, emp.salary, mang.* FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id;
+Select
+├─> FROM
+│   ├─> TABLE: employees
+│   │   └─> ALIAS: emp
+│   └─> LEFT_JOIN
+│       ├─> TABLE: manager
+│       │   └─> ALIAS: mang
+│       └─> EQUALS
+│           ├─> COLUMN: emp.id
+│           └─> COLUMN: mang.id
+├─> COLUMN: emp.department
+├─> COLUMN: emp.salary
+└─> STAR
+    └─> QUALIFIER: mang
+```
+
+**Verified end-to-end (Query 24 below) — bare star mid-list, after a comma:**
+```
+SQL> select id, * from employee;
+Select
+├─> FROM
+│   └─> TABLE: employee
+├─> COLUMN: id
+└─> STAR
+```
+
+**Verified end-to-end (Query 25 below) — unqualified column next to a qualified one:**
+```
+SQL> select name, emp.dept from employees emp;
+Select
+├─> FROM
+│   └─> TABLE: employees
+│       └─> ALIAS: emp
+├─> COLUMN: name
+└─> COLUMN: emp.dept
+```
+
+**Verified end-to-end (Query 26 below) — compound `AND` in `ON`:**
+```
+SQL> SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang ON emp.dept_id = mang.dept_id AND emp.location = mang.location;
+Select
+├─> FROM
+│   ├─> TABLE: employees
+│   │   └─> ALIAS: emp
+│   └─> LEFT_JOIN
+│       ├─> TABLE: manager
+│       │   └─> ALIAS: mang
+│       └─> AND
+│           ├─> EQUALS
+│           │   ├─> COLUMN: emp.dept_id
+│           │   └─> COLUMN: mang.dept_id
+│           └─> EQUALS
+│               ├─> COLUMN: emp.location
+│               └─> COLUMN: mang.location
+├─> COLUMN: emp.name
+└─> COLUMN: mang.name
+```
+
+**Verified end-to-end (Query 27 below) — mixed `OR`/`AND` in `ON`, same precedence as `WHERE`:**
+```
+SQL> SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
+Select
+├─> FROM
+│   ├─> TABLE: employees
+│   │   └─> ALIAS: emp
+│   └─> LEFT_JOIN
+│       ├─> TABLE: manager
+│       │   └─> ALIAS: mang
+│       └─> OR
+│           ├─> EQUALS
+│           │   ├─> COLUMN: emp.id
+│           │   └─> COLUMN: mang.id
+│           └─> AND
+│               ├─> EQUALS
+│               │   ├─> COLUMN: emp.backup_manager_id
+│               │   └─> COLUMN: mang.id
+│               └─> EQUALS
+│                   ├─> COLUMN: emp.active
+│                   └─> LITERAL: 1
+├─> COLUMN: emp.name
+└─> COLUMN: mang.name
+```
+
 Each query below is used as the target for one stage of the parser
 build-out, in increasing order of grammar coverage — from a bare
-`SELECT`/`FROM` up through joins, aliases, `INSERT`, and function calls.
+`SELECT`/`FROM` up through joins, aliases, `INSERT`, function calls,
+and `SELECT *`.
 
 ```sql
 -- Query 1
@@ -1248,10 +1541,25 @@ SELECT department FROM employees GROUP BY department HAVING SUM(salary) AS s > 5
 SELECT department, COUNT(*), SUM(salary) FROM employees
   GROUP BY department HAVING department = 'CSE' ORDER BY department DESC;
 
---
-SELECT emp.department, emp.salary, mang.* FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id
-  WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+-- Query 22 (qualified star)
+select emp.* from employee emp;
 
+-- Query 23 (qualified star mixed with qualified columns, across a join)
+SELECT emp.department, emp.salary, mang.* FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id;
+
+-- Query 24 (bare star mid-list, after a comma)
+select id, * from employee;
+
+-- Query 25 (unqualified column next to a qualified one)
+select name, emp.dept from employees emp;
+
+-- Query 26 (compound AND in ON)
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON emp.dept_id = mang.dept_id AND emp.location = mang.location;
+
+-- Query 27 (mixed OR/AND in ON, same precedence as WHERE)
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

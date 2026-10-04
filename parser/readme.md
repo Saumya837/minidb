@@ -773,10 +773,15 @@ having_clause     := HAVING condition   # requires a preceding group_by_clause
 
 condition         := or_expr
 or_expr           := and_expr (OR and_expr)*
-and_expr          := comparison (AND comparison)*
+and_expr          := primary (AND primary)*
+primary           := LPAREN or_expr RPAREN | comparison
+
 comparison        := operand comparator operand
 comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
 operand           := function_call | IDENTIFIER | NUMBER | STRING
+
+where_clause      := WHERE condition
+having_clause     := HAVING condition   # requires a preceding group_by_clause
 
 group_by_clause   := GROUP BY column_list
 order_by_clause   := ORDER BY order_item (COMMA order_item)*
@@ -970,10 +975,10 @@ than aborting the whole session — one typo shouldn't force a restart.
 - [x] `SELECT *` — bare `*` and table-qualified `table.*`, both as a
       `STAR` node (qualified form carries a `QUALIFIER` child); mixable
       with ordinary columns in the same projection list
+ - [x] Parenthesized expressions (`(a OR b) AND c`) — no way to
+      explicitly override `AND`/`OR` precedence
 
 **Not yet done:**
-- [ ] Parenthesized expressions (`(a OR b) AND c`) — no way to
-      explicitly override `AND`/`OR` precedence
 - [ ] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
       (`emp.id`) currently keep the qualifier folded into their
       `.value` string rather than as a structural child; the binder
@@ -1559,7 +1564,7 @@ SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
 
 -- Query 27 (mixed OR/AND in ON, same precedence as WHERE)
 SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
-  ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
+  ON (emp.id = mang.id OR (emp.backup_manager_id = mang.id) AND (emp.active = 1));
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

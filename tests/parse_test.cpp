@@ -4,26 +4,31 @@
 #include <iostream>
 
 int main(){
-    std::string sql;
-    while (true){
-        std::cout << "SQL> ";
+    std::string buffer;
+    while (true) {
+        std::cout << (buffer.empty() ? "SQL> " : "...> ");
+        std::string line;
+        std::getline(std::cin, line);
 
-        std::getline(std::cin, sql); 
+        if (buffer.empty() && (line == "exit" || line == "quit")) break;
 
-        if (sql == "exit" || sql == "quit"){
-            break;
+        buffer += line + " ";   // space, not nothing — otherwise two words on
+                                // adjacent lines (e.g. "...mang\nON...") would
+                                // concatenate into one token
+
+        if (line.find(';') == std::string::npos) {
+            continue;            // no terminator yet, keep reading lines
         }
 
-        try{
-            std::vector<Token> tokens = tokenize(sql);
+        try {
+            std::vector<Token> tokens = tokenize(buffer);
             size_t position = 0;
             auto root = parseStatement(tokens, position);
-
             printAST(*root);
-        }
-        catch (const std::runtime_error& e) {
+        } catch (const std::runtime_error& e) {
             std::cout << "Error: " << e.what() << "\n";
         }
+        buffer.clear();
     }
     return 0;
 }

@@ -468,14 +468,24 @@ std::unique_ptr<ASTNode>  parseOrExpr(const std::vector<Token>& tokens, size_t&p
     return and_node1;
 }
 
+std::unique_ptr<ASTNode> parsePrimary(const std::vector<Token>& tokens, size_t& pos) {
+    if (check(tokens, pos, TokenType::LPAREN)) {
+        expect(tokens, pos, TokenType::LPAREN);
+        auto node = parseOrExpr(tokens, pos);   // back to the top of the precedence chain
+        expect(tokens, pos, TokenType::RPAREN);
+        return node;
+    }
+    return parseComparison(tokens, pos);
+}
+
 std::unique_ptr<ASTNode> parseAndExpr(const std::vector<Token>& tokens, size_t& pos){
-    auto comp1 = parseComparison(tokens, pos);
+    auto comp1 = parsePrimary(tokens, pos);
 
     if(check(tokens, pos, TokenType::AND)){
         expect(tokens, pos, TokenType::AND);
         auto and_node = std::make_unique<ASTNode>();
         and_node->type = ExpressionType::AND;
-        auto comp2 = parseComparison(tokens, pos);
+        auto comp2 = parsePrimary(tokens, pos);
         and_node->children.push_back(std::move(comp1));
         and_node->children.push_back(std::move(comp2));
         return and_node;
@@ -677,4 +687,5 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
     }
     return order_item;
 }
+
 

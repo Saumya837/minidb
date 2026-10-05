@@ -99,27 +99,18 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     }   
 }
 
-std::unique_ptr<ASTNode> parseDeleteSatetement(const std::vector<Token>& tokens, size_t& pos){
+std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, size_t& pos){
     expect(tokens, pos, TokenType::DELETE);
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::DELETE;
 
-    expect(tokens, pos, TokenType::FROM);
-    auto from = std::make_unique<ASTNode>();
-    from->type = Clauses::FROM;
-    root->children.push_back(std::move(from));
-
-    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-    auto relation = std::make_unique<ASTNode>();
-    relation->type = Relations::TABLE;
-    relation->value = idToken.lexeme;
-    root->children.push_back(std::move(relation));
+    auto fromNode = parseFromClause(tokens, pos);
+    root->children.push_back(std::move(fromNode));
 
     if(check(tokens, pos, TokenType::WHERE)){
         auto whereNode = parseWhereClause(tokens, pos);
         root->children.push_back(std::move(whereNode));
     }
-
     return root;
 }
 

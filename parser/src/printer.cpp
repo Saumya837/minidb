@@ -14,11 +14,11 @@ std::string tagToString(const ASTTag& tag){
             switch(t){
                 case StatementType::SELECT: return "Select";  
                 case StatementType::INSERT: return "Insert";
-                case StatementType::UPDATE: return "UPDATE";
-                case StatementType::DELETE: return "DELETE"; 
-                case StatementType::CREATE: return "CREATE"; 
-                case StatementType::ALTER:  return "ALTER";
-                case StatementType::DROP:   return "DROP";  
+                case StatementType::UPDATE: return "Update";
+                case StatementType::DELETE: return "Delete"; 
+                case StatementType::CREATE: return "Create"; 
+                case StatementType::ALTER:  return "Alter";
+                case StatementType::DROP:   return "Drop";  
             }
         }
         else if constexpr(std::is_same_v<T, Clauses>){

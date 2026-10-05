@@ -91,9 +91,36 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     else if(check(tokens, pos, TokenType::CREATE)){
         throw std::runtime_error("parseCreateStatement not yet implemented");
     }
+    else if(check(tokens, pos, TokenType::DELETE)){
+        return parseDeleteStatement(tokens, pos);
+    }
     else {
         throw std::runtime_error("Unknown statement type at position " + std::to_string(pos));
     }   
+}
+
+std::unique_ptr<ASTNode> parseDeleteSatetement(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::DELETE);
+    auto root = std::make_unique<ASTNode>();
+    root->type = StatementType::DELETE;
+
+    expect(tokens, pos, TokenType::FROM);
+    auto from = std::make_unique<ASTNode>();
+    from->type = Clauses::FROM;
+    root->children.push_back(std::move(from));
+
+    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    auto relation = std::make_unique<ASTNode>();
+    relation->type = Relations::TABLE;
+    relation->value = idToken.lexeme;
+    root->children.push_back(std::move(relation));
+
+    if(check(tokens, pos, TokenType::WHERE)){
+        auto whereNode = parseWhereClause(tokens, pos);
+        root->children.push_back(std::move(whereNode));
+    }
+
+    return root;
 }
 
 std::unique_ptr<ASTNode> parseInsertStatement(const std::vector<Token>& tokens, size_t& pos){

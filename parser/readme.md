@@ -751,6 +751,7 @@ value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING
 delete           := DELETE FROM relation where_clause? SEMICOLON
+drop             := DROP TABLE IDENTIFIER;
 
 SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON

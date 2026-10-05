@@ -88,11 +88,20 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     else if(check(tokens, pos, TokenType::INSERT)){
         return parseInsertStatement(tokens, pos);;
     } 
-    else if(check(tokens, pos, TokenType::CREATE)){
-        throw std::runtime_error("parseCreateStatement not yet implemented");
-    }
     else if(check(tokens, pos, TokenType::DELETE)){
         return parseDeleteStatement(tokens, pos);
+    }
+    else if(check(tokens, pos, TokenType::DROP)){
+        return parseDropStatement(tokens, pos); 
+    }
+     else if(check(tokens, pos, TokenType::CREATE)){
+        throw std::runtime_error("parseCreateStatement not yet implemented");
+    }
+    else if(check(tokens, pos, TokenType::UPDATE)){
+        throw std::runtime_error("parseUpdateStatement not yet implemented");
+    }
+    else if(check(tokens, pos, TokenType::ALTER)){
+        throw std::runtime_error("parseAlterStatement not yet implemented");
     }
     else {
         throw std::runtime_error("Unknown statement type at position " + std::to_string(pos));
@@ -113,6 +122,25 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
     }
     return root;
 }
+
+std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::DROP);
+    auto root = std::make_unique<ASTNode>();
+    root->type = StatementType::DROP;
+
+    expect(tokens, pos, TokenType::TABLE);
+
+    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    auto relation = std::make_unique<ASTNode>();
+    relation->type = Relations::TABLE;
+    relation->value = idToken.lexeme;
+
+    root->children.push_back(std::move(relation));
+
+    expect(tokens, pos, TokenType::SEMICOLON);
+    return root;
+}
+
 
 std::unique_ptr<ASTNode> parseInsertStatement(const std::vector<Token>& tokens, size_t& pos){
     expect(tokens, pos, TokenType::INSERT);

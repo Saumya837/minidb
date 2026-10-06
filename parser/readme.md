@@ -211,9 +211,8 @@ OR
 No grammar *text* change was needed for this — the written grammar
 always said `ON condition` with `condition := or_expr`. The bug was that
 the code didn't match its own grammar: `ON` was wired to `parseComparison`
-instead of `parseOrExpr`. Known gap that remains: no parenthesized
-expressions, so `(a OR b) AND c` can't be written explicitly — see
-**Status**.
+instead of `parseOrExpr`. Parenthesized grouping was the next gap and
+is now closed — see **Parenthesized expressions** below.
 
 ### Column and table aliases (`AS`)
 
@@ -401,7 +400,7 @@ Insert
 projection_item  := (column | function_call)
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := IDENTIFIER | literal
+arg_item         := function_call | IDENTIFIER | literal
 operand          := function_call | IDENTIFIER | NUMBER | STRING
 ```
 
@@ -427,10 +426,12 @@ consume-then-check dance needed.
 
 **`COUNT(*)`'s star argument.** No children on the `FUNCTION` node
 signals `*` (the star token is consumed via `expect()` and discarded,
-same as `AS`); one or more children are the function's real arguments:
+same as `AS`); real arguments live under an `ARG_LIST` child (see
+below):
 ```
 FUNCTION: COUNT          FUNCTION: SUM
-(no children = *)        └─> COLUMN: salary
+(no children = *)        └─> ARG_LIST
+                             └─> COLUMN: salary
 ```
 `STAR` sits as an alternative to the *entire* `arg_list`, not inside
 `arg_item` — `arg_list := STAR | arg_item (COMMA arg_item)*` — so
@@ -471,12 +472,171 @@ Both bugs came from the same root cause — reusing a parser function for
 its convenience without checking whether the grammar rule at the call
 site actually authorized everything that function does.
 
-> **Note — not yet reflected here:** nested function calls as arguments
-> (`COALESCE(SUM(salary), 0)`) and the `ARG_LIST` wrapper node that went
-> with them, plus the Postgres-style syntax-error-message work
-> (`syntaxErrorLocation`/`tokenTypeToString`), both landed before the
-> `SELECT *` work below but haven't been written up here yet. Flagging
-> as a known doc gap, separate from today's update.
+**Nested calls and the `ARG_LIST` wrapper.** An argument can itself be a
+function call (`COALESCE(SUM(salary), 0)`), hence
+`arg_item := function_call | IDENTIFIER | literal`. Arguments are
+collected under an `InternalNode::ARG_LIST` child of `FUNCTION`.
+
+`ARG_LIST` is the first `InternalNode` wrapper needed for a *different*
+reason than `ORDER_ITEM`/`VALUE_TUPLE`. Those exist because several
+same-shaped items would otherwise collide as flat siblings. `FUNCTION`
+instead combines a variable-length argument list with another, distinct
+optional child (`ALIAS`) at the same level. Without a wrapper, a consumer
+would have to know "everything except the trailing `ALIAS` is an
+argument". With it, `FUNCTION` has the fixed shape
+`[ARG_LIST?, ALIAS?]`:
+
+```
+FUNCTION: SUM
+├─> ARG_LIST
+│   └─> COLUMN: emp.salary
+└─> ALIAS: total_salary        <- sibling of ARG_LIST, not a child
+```
+
+- **`*` has no `ARG_LIST`.** `COUNT(*)` is a `FUNCTION` with no children
+  (or just `ALIAS`), so "no `ARG_LIST`" is the star signal.
+- Nesting simply puts a `FUNCTION` node inside the `ARG_LIST`:
+  ```
+  FUNCTION: COALESCE
+  └─> ARG_LIST
+      ├─> FUNCTION: SUM
+      │   └─> ARG_LIST
+      │       └─> COLUMN: salary
+      └─> LITERAL: 0
+  ```
+  (shape derived from the rules above; replace with your REPL output.)
+
+### Syntax error messages
+
+Parse failures use a Postgres-style format, produced in one place
+(`syntaxErrorLocation` builds the `at or near "X"` / `unexpected end of
+input` part, `tokenTypeToString` turns a `TokenType` into the name shown
+after `expected`):
+
+```
+Syntax error: at or near "e", expected ';'
+Syntax error: at or near "Employee", expected TABLE
+Syntax error: unexpected end of input, expected ...
+```
+
+`expect()` uses these as its generic fallback, so every mandatory token
+gets a precise message for free, with no per-call-site strings. Specific
+messages exist only where the generic one would mislead, e.g. a trailing
+comma in a projection list: `expected a column or function after ','`.
+
+Errors fall in three buckets, and only the first two exist yet:
+
+| Kind | Raised by | Example |
+|---|---|---|
+| Lexical | `tokenize()` | unterminated string, bad character |
+| Syntax | parser | `DELETE employees WHERE ...` (expected FROM) |
+| Semantic | future binder | unknown table, `HAVING` on a non-grouped column |
+
+Old-format messages that still need converting: `parseQualifier`'s
+`invalid identifier`, the comparator error (`Expected a comparator at
+position N`), `Unknown statement type`, and the `HAVING` without `GROUP BY`
+message.
+
+### Parenthesized expressions
+
+```
+primary := LPAREN or_expr RPAREN | comparison
+```
+
+`and_expr` now calls `parsePrimary` instead of `parseComparison`:
+
+```cpp
+std::unique_ptr<ASTNode> parsePrimary(const std::vector<Token>& tokens, size_t& pos) {
+    if (check(tokens, pos, TokenType::LPAREN)) {
+        expect(tokens, pos, TokenType::LPAREN);
+        auto node = parseOrExpr(tokens, pos);
+        expect(tokens, pos, TokenType::RPAREN);
+        return node;
+    }
+    return parseComparison(tokens, pos);
+}
+```
+
+**Parens create no node.** Same test as `AS` and `;`: does the symbol's
+identity matter downstream? The grouping is fully encoded in the tree's
+shape, so a `PAREN` node would only force every later phase to unwrap it.
+Because `WHERE`, `HAVING` and `ON` all go through `parseOrExpr`, one
+change gave all three paren support.
+
+**Test choice matters.** `(a AND b) OR c` is redundant with default
+precedence and would pass even if parens were ignored. The meaningful
+check is one that *changes* the tree, e.g. `ON (a OR b) AND c`:
+
+```
+AND
+├─> OR
+│   ├─> (a)
+│   └─> (b)
+└─> (c)
+```
+
+Without parens the same text parses as `a OR (b AND c)`. Redundant and
+deeply nested forms (`((x) AND (y))`) were also verified, as was a large
+multi-line query combining joins, nested parens, `GROUP BY`/`HAVING` and
+`ORDER BY`.
+
+### `DELETE`
+
+```
+delete := DELETE FROM relation where_clause? SEMICOLON
+```
+
+```
+SQL> DELETE FROM employees WHERE id = 5;
+Delete
+├─> FROM
+│   └─> TABLE: employees
+└─> WHERE
+    └─> EQUALS
+        ├─> COLUMN: id
+        └─> LITERAL: 5
+```
+
+- **Target is a `relation`**, not a bare `IDENTIFIER`: `WHERE` can refer
+  to the table by alias (`DELETE FROM employees e WHERE e.id = 5`), so
+  the alias must be consumable. Contrast `INSERT`, whose target is a
+  plain `IDENTIFIER` because nothing after it uses an alias.
+- **`FROM` wrapper kept** around the target, matching `SELECT`'s tree so
+  later phases resolve the table the same way for both statements.
+- `WHERE` is optional and reuses `parseWhereClause` unchanged.
+- The printer's root label is `Delete`, matching `Select`/`Insert`
+  (it originally printed `DELETE`; fixed).
+
+Verified errors:
+```
+DELETE employees WHERE id = 5;
+Error: Syntax error: at or near "employees", expected FROM
+```
+
+### `DROP TABLE`
+
+```
+drop := DROP TABLE IDENTIFIER SEMICOLON
+```
+
+```
+SQL> Drop table Employee;
+Drop
+└─> TABLE: Employee
+```
+
+- **Target is a plain `IDENTIFIER`** — an alias on `DROP` is meaningless,
+  and is rejected rather than silently absorbed:
+  ```
+  DROP TABLE Employee e;   -> at or near "e", expected ';'
+  DROP Employee;           -> at or near "Employee", expected TABLE
+  ```
+- The `TABLE:` node reuses the `Relations::TABLE` tag, same as in `FROM`.
+- Untested so far: `DROP TABLE;` and `DROP TABLE a, b;`.
+- **Proposed, not built:** `DROP TABLE IF EXISTS name` as an `IF_EXISTS`
+  marker child (identity matters downstream, unlike `AS`), requiring `IF`
+  and `EXISTS` in both `TokenType` *and* `keywordTable`. `DROP FUNCTION`
+  would need `CREATE FUNCTION` first.
 
 ### `SELECT *` and qualified star (`table.*`)
 
@@ -744,23 +904,24 @@ files.)
 ### Grammar
 
 ```
-Statement        := SelectStat | InsertStat
+Statement        := SelectStat | InsertStat | DeleteStat | DropStat
 
 InsertStat       := INSERT INTO IDENTIFIER (LPAREN column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
 value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING
-delete           := DELETE FROM relation where_clause? SEMICOLON
-drop             := DROP TABLE IDENTIFIER;
+DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
+DropStat         := DROP TABLE IDENTIFIER SEMICOLON
 
 SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := STAR | function_call | column
+projection_item  := STAR | qualified_star | function_call | column
+qualified_star   := IDENTIFIER_DOT_STAR      # lexed as one token, e.g. emp.*
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := IDENTIFIER | literal
+arg_item         := function_call | IDENTIFIER | literal
 
 column_list       := column (COMMA column)*
 column            := IDENTIFIER alias?
@@ -781,9 +942,6 @@ primary           := LPAREN or_expr RPAREN | comparison
 comparison        := operand comparator operand
 comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
 operand           := function_call | IDENTIFIER | NUMBER | STRING
-
-where_clause      := WHERE condition
-having_clause     := HAVING condition   # requires a preceding group_by_clause
 
 group_by_clause   := GROUP BY column_list
 order_by_clause   := ORDER BY order_item (COMMA order_item)*
@@ -873,8 +1031,9 @@ matches.**
 std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t& pos) {
     if (check(tokens, pos, TokenType::SELECT))       return parseSelectStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::INSERT))  return parseInsertStatement(tokens, pos);
-    else if (check(tokens, pos, TokenType::CREATE))  return parseCreateStatement(tokens, pos);
-    // ... UPDATE, DELETE, ALTER, DROP ...
+    else if (check(tokens, pos, TokenType::DELETE))  return parseDeleteStatement(tokens, pos);
+    else if (check(tokens, pos, TokenType::DROP))    return parseDropStatement(tokens, pos);
+    // ... UPDATE, CREATE, ALTER still stubs ...
     else throw std::runtime_error("Unknown statement type at position " + std::to_string(pos));
 }
 ```
@@ -888,8 +1047,9 @@ won't catch `SELECT FROM;` (missing columns) — `parseSelectStatement` /
 `parseProjectionList` will, when they expect an identifier and find
 `FROM` instead.
 
-Sub-parsers other than `parseSelectStatement`/`parseInsertStatement`
-(`parseCreateStatement`, etc.) are still stubs.
+Sub-parsers other than `parseSelectStatement`/`parseInsertStatement`/
+`parseDeleteStatement`/`parseDropStatement` (`UPDATE`, `CREATE`, `ALTER`)
+are not written yet.
 
 `parseGroupByClause` calls `parseColumnList()` directly rather than
 duplicating comma-separated-identifier logic, since `GROUP BY
@@ -912,30 +1072,40 @@ the grammar's clause order.
 ### REPL
 
 An interactive loop for testing arbitrary queries without recompiling
-per test case:
+per test case. It is **multi-line**: input accumulates in a buffer until
+a line contains `;`, so long queries can be typed or pasted naturally.
+The prompt is `SQL> ` for a fresh statement and `...> ` while buffering.
 
 ```cpp
-std::string sql;
+std::string buffer;
 while (true) {
-    std::cout << "SQL> ";
-    std::getline(std::cin, sql);
+    std::cout << (buffer.empty() ? "SQL> " : "...> ");
+    std::string line;
+    std::getline(std::cin, line);
 
-    if (sql == "exit" || sql == "quit") break;
+    if (buffer.empty() && (line == "exit" || line == "quit")) break;
+
+    buffer += line + " ";
+    if (line.find(';') == std::string::npos) continue;   // keep buffering
 
     try {
-        std::vector<Token> tokens = tokenize(sql);
+        auto tokens = tokenize(buffer);
         size_t position = 0;
         auto root = parseStatement(tokens, position);
         printAST(*root);
     } catch (const std::runtime_error& e) {
         std::cout << "Error: " << e.what() << "\n";
     }
+    buffer.clear();
 }
 ```
 
-The `try`/`catch` is scoped tightly around just the per-query work, so
-a malformed query prints its error and returns to the prompt rather
-than aborting the whole session — one typo shouldn't force a restart.
+- `exit`/`quit` are honored only on an empty buffer, so they can't
+  swallow a half-typed query.
+- The `try`/`catch` is scoped around the per-query work, so a malformed
+  query prints its error, clears the buffer and returns to the prompt.
+- **Known limitation:** a *missing* semicolon cannot be tested here, since
+  the REPL waits for `;` by design. That case needs a direct unit test.
 
 ---
 
@@ -977,16 +1147,33 @@ than aborting the whole session — one typo shouldn't force a restart.
 - [x] `SELECT *` — bare `*` and table-qualified `table.*`, both as a
       `STAR` node (qualified form carries a `QUALIFIER` child); mixable
       with ordinary columns in the same projection list
- - [x] Parenthesized expressions (`(a OR b) AND c`) — no way to
-      explicitly override `AND`/`OR` precedence
+- [x] Parenthesized expressions (`(a OR b) AND c`) in `WHERE`, `HAVING`
+      and `ON` — via `parsePrimary`; no node created for the parens
+- [x] Multi-line REPL (buffers until `;`)
+- [x] `parseDeleteStatement()` — `DELETE FROM relation [WHERE ...]`
+- [x] `parseDropStatement()` — `DROP TABLE name`
+- [x] Postgres-style syntax error messages for `expect()` failures
 
 **Not yet done:**
 - [ ] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
       (`emp.id`) currently keep the qualifier folded into their
       `.value` string rather than as a structural child; the binder
       will need to re-split it when resolving joins
-- [ ] Non-`SELECT`/`INSERT` statements (`UPDATE`, `DELETE`, `CREATE`,
-      `ALTER`, `DROP`) — dispatcher stubs only
+- [ ] `UPDATE` — design pending: `SET` token (enum *and* `keywordTable`),
+      `ASSIGNMENT` tag, `Clauses::SET`, `operand` on the right-hand side,
+      reject a dotted left-hand side
+- [ ] `DROP TABLE IF EXISTS` — `IF`/`EXISTS` tokens + `IF_EXISTS` marker
+- [ ] `CREATE TABLE` (largest: type keywords, constraints; unblocks the
+      catalog), `ALTER`, `DROP` of other objects
+- [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
+      the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
+      `LIKE`, arithmetic; plain-`JOIN` forms beyond `(LEFT|RIGHT)? JOIN`
+- [ ] `OFFSET`
+- [ ] Duplicated projection dispatch (before and inside the comma loop) —
+      extract `parseProjectionItem`
+- [ ] Remaining old-format error messages (see **Syntax error messages**)
+- [ ] Trailing-token check after the terminating `;`
+- [ ] Automated regression tests (currently REPL-verified by hand)
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
       (currently: caller runs `tokenize` then `parseStatement`
       separately, and exceptions propagate raw)
@@ -1338,7 +1525,8 @@ Select
 └─> HAVING
     └─> GREATER
         ├─> FUNCTION: SUM
-        │   └─> COLUMN: salary
+        │   └─> ARG_LIST
+        │       └─> COLUMN: salary
         └─> LITERAL: 5000
 ```
 
@@ -1358,7 +1546,8 @@ Select
 ├─> COLUMN: department
 ├─> FUNCTION: COUNT
 ├─> FUNCTION: SUM
-│   └─> COLUMN: salary
+│   └─> ARG_LIST
+│       └─> COLUMN: salary
 ├─> GROUP BY
 │   └─> COLUMN: department
 ├─> HAVING
@@ -1471,7 +1660,7 @@ Select
 Each query below is used as the target for one stage of the parser
 build-out, in increasing order of grammar coverage — from a bare
 `SELECT`/`FROM` up through joins, aliases, `INSERT`, function calls,
-and `SELECT *`.
+`SELECT *`, parenthesized conditions, `DELETE` and `DROP TABLE`.
 
 ```sql
 -- Query 1
@@ -1566,7 +1755,28 @@ SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
 
 -- Query 27 (mixed OR/AND in ON, same precedence as WHERE)
 SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
-  ON (emp.id = mang.id OR (emp.backup_manager_id = mang.id) AND (emp.active = 1));
+  ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
+
+-- Query 28 (parenthesized ON — grouping changes the tree)
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON (emp.id = mang.id OR emp.backup_manager_id = mang.id) AND emp.active = 1;
+
+-- Query 29 (parentheses in WHERE, nested and redundant)
+SELECT name FROM employees WHERE ((salary > 5000) AND (department = 'CSE'));
+
+-- Query 30 (DELETE with WHERE)
+DELETE FROM employees WHERE id = 5;
+
+-- Query 31 (DELETE with alias, no WHERE)
+DELETE FROM employees e;
+
+-- Query 32 (DROP TABLE)
+DROP TABLE Employee;
+
+-- Query 33 (error cases — must throw)
+DROP TABLE Employee e;        -- at or near "e", expected ';'
+DROP Employee;                -- at or near "Employee", expected TABLE
+DELETE employees WHERE id = 5; -- at or near "employees", expected FROM
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

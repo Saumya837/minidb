@@ -59,6 +59,7 @@ std::string tagToString(const ASTTag& tag){
                 case ValueType::ALIAS: return "ALIAS";
                 case ValueType::STAR: return "STAR";
                 case ValueType::FUNCTION: return "FUNCTION";
+                case ValueType::INDEX: return "INDEX";
             }
         }
         else if constexpr(std::is_same_v<T, OrderDirection>){
@@ -73,9 +74,11 @@ std::string tagToString(const ASTTag& tag){
                 case InternalNode::ORDER_ITEM: return "ORDER_ITEM";
                 case InternalNode::VALUE_TUPLE: return "VALUE_TUPLE";
                 case InternalNode::ARG_LIST: return "ARG_LIST";
+                case InternalNode::INDEX_LIST: return "INDEX_LIST";
                 case InternalNode::QUALIFIER: return "QUALIFIER";
             }
         }
+        
     }, tag);
 }
 

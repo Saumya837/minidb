@@ -123,19 +123,82 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
     return root;
 }
 
+// std::unique_ptr<ASTNode> parseFunctionDef(const std::vector<Token>& tokens, size_t& pos, bool allow_parameter_name = true){
+    
+//     if(check(tokens, pos, TokenType::FUNCTION)){
+//         expect(tokens, pos, TokenType::FUNCTION);
+//         auto function = std::make_unique<ASTNode>();
+//         function->type = ValueType::FUNCTION;
+//         function->value = expect(tokens, pos, TokenType::IDENTIFIER).lexeme;
+
+//         expect(tokens, pos, TokenType::LPAREN);
+//         parseArgsList(tokens, pos);
+//         expect(tokens, pos, TokenType::RPAREN);
+
+//         if(allow_parameter_name && check(tokens, pos, TokenType::AS)){
+//             auto alias = parseAlias(tokens, pos);
+//             function->children.push_back(std::move(alias));
+//         }
+//     }
+//     return function;
+// }
+
+std::unique_ptr<ASTNode> parseIndexStatement(const std::vector<Token> &tokens, size_t &pos){
+    expect(tokens, pos, TokenType::INDEX);
+    auto indexList = std::make_unique<ASTNode>();
+    indexList->type = InternalNode::INDEX_LIST;
+
+    auto index = std::make_unique<ASTNode>();
+    index->type = ValueType::INDEX;
+    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    index->value = idToken.lexeme;
+    indexList->children.push_back(std::move(index));
+
+    while(check(tokens, pos, TokenType::COMMA)){
+        expect(tokens, pos, TokenType::COMMA);
+        auto nextToken = expect(tokens, pos, TokenType::IDENTIFIER);
+        auto next_index = std::make_unique<ASTNode>();
+        next_index->type = ValueType::INDEX;
+        next_index->value = nextToken.lexeme;
+        indexList->children.push_back(std::move(next_index));
+    }
+
+    return indexList;
+}
+
+
 std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, size_t& pos){
     expect(tokens, pos, TokenType::DROP);
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::DROP;
 
-    expect(tokens, pos, TokenType::TABLE);
+    if(check(tokens, pos, TokenType::INDEX)){
+        auto index = parseIndexStatement(tokens, pos);
+        root->children.push_back(std::move(index));
 
-    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-    auto relation = std::make_unique<ASTNode>();
-    relation->type = Relations::TABLE;
-    relation->value = idToken.lexeme;
+        expect(tokens, pos, TokenType::ON);
 
-    root->children.push_back(std::move(relation));
+        auto idToken2 = expect(tokens, pos, TokenType::IDENTIFIER);
+        auto relation = std::make_unique<ASTNode>();
+        relation->type = Relations::TABLE;
+        relation->value = idToken2.lexeme;
+
+        root->children.push_back(std::move(relation));
+    } 
+    else if(check(tokens, pos, TokenType::TABLE)){
+        expect(tokens, pos, TokenType::TABLE);
+        auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+        auto relation = std::make_unique<ASTNode>();
+        relation->type = Relations::TABLE;
+        relation->value = idToken.lexeme;
+        root->children.push_back(std::move(relation));
+    }
+    
+    // if(check(tokens, pos, TokenType::FUNCTION)){
+    //     expect(tokens, pos, TokenType::FUNCTION);
+    //     auto function = parseFunctionDef(tokens, pos, false);
+    //     root->children.push_back(std::move(function));
+    // }
 
     expect(tokens, pos, TokenType::SEMICOLON);
     return root;

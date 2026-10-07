@@ -22,11 +22,11 @@ enum class ExpressionType {
 };
 
 enum class InternalNode {
-   VALUE_TUPLE, ORDER_ITEM, ARG_LIST, QUALIFIER
+   VALUE_TUPLE, ORDER_ITEM, ARG_LIST, QUALIFIER, INDEX_LIST
 };
 
 enum class ValueType {
-    COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION
+    COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION, INDEX
 };
 
 enum class OrderDirection {
@@ -34,7 +34,6 @@ enum class OrderDirection {
 };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType, OrderDirection, InternalNode>;
-
 struct ASTNode {
     ASTTag type;
     std::string value;

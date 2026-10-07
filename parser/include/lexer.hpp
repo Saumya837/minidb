@@ -7,19 +7,26 @@ enum class TokenType {
     // keywords
     SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, DISTINCT,
 
-    FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, TABLE, JOIN, INTO, VALUES,
+    FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, INTO, VALUES,
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
     // operators
     EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
     // punctuation
     COMMA, SEMICOLON,
+    //DDL keywords
+    TABLE, INDEX, FUNCTION,
+
+    // ORDER keywords
+    ASC, DESC,
+
+    // JOIN
+    LEFT, RIGHT, JOIN,
+    
+    ON, AS, HAVING, LPAREN, RPAREN, STAR,
+    
     // control
     END_OF_INPUT, UNKNOWN,
-
-    ASC, DESC, LEFT, RIGHT,
-    
-    ON, AS, HAVING, LPAREN, RPAREN, STAR
 };
 
 struct Token {
@@ -46,6 +53,8 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"AND",    TokenType::AND},
     {"OR",     TokenType::OR},
     {"TABLE",  TokenType::TABLE},
+    {"INDEX", TokenType::INDEX},
+    {"FUNCTION", TokenType::FUNCTION},
     {"JOIN",   TokenType::JOIN},
     {"ASC",    TokenType::ASC},
     {"DESC",   TokenType::DESC},

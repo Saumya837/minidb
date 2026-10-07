@@ -8,12 +8,14 @@ enum class TokenType {
     SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, DISTINCT,
 
     FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, INTO, VALUES,
+
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
     // operators
     EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
     // punctuation
     COMMA, SEMICOLON,
+
     //DDL keywords
     TABLE, INDEX, FUNCTION,
 
@@ -24,7 +26,9 @@ enum class TokenType {
     LEFT, RIGHT, JOIN,
     
     ON, AS, HAVING, LPAREN, RPAREN, STAR,
-    
+
+    IF, ELSE, EXISTS,
+
     // control
     END_OF_INPUT, UNKNOWN,
 };
@@ -63,7 +67,9 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"ON",     TokenType::ON},
     {"AS",     TokenType::AS},
     {"HAVING", TokenType::HAVING},
-    {"VALUES", TokenType::VALUES}
+    {"VALUES", TokenType::VALUES},
+    {"IF",     TokenType::IF},
+    {"EXISTS", TokenType::EXISTS}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

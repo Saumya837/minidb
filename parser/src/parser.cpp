@@ -144,7 +144,6 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
 // }
 
 std::unique_ptr<ASTNode> parseIndexStatement(const std::vector<Token> &tokens, size_t &pos){
-    expect(tokens, pos, TokenType::INDEX);
     auto indexList = std::make_unique<ASTNode>();
     indexList->type = InternalNode::INDEX_LIST;
 
@@ -172,10 +171,21 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::DROP;
 
+
     if(check(tokens, pos, TokenType::INDEX)){
+
+        expect(tokens, pos, TokenType::INDEX);
+
+        if(check(tokens, pos, TokenType::IF) && check(tokens, pos + 1, TokenType::EXISTS)){
+            expect(tokens, pos, TokenType::IF);
+            expect(tokens, pos, TokenType::EXISTS);
+            auto if_exists_node = std::make_unique<ASTNode>();
+            if_exists_node->type = Clauses::IF_EXISTS;
+            root->children.push_back(std::move(if_exists_node));
+        }
+
         auto index = parseIndexStatement(tokens, pos);
         root->children.push_back(std::move(index));
-
         expect(tokens, pos, TokenType::ON);
 
         auto idToken2 = expect(tokens, pos, TokenType::IDENTIFIER);
@@ -187,13 +197,24 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
     } 
     else if(check(tokens, pos, TokenType::TABLE)){
         expect(tokens, pos, TokenType::TABLE);
+
+        if(check(tokens, pos, TokenType::IF) && check(tokens, pos+1, TokenType::EXISTS)){
+            expect(tokens, pos, TokenType::IF);
+            expect(tokens, pos, TokenType::EXISTS);
+            auto if_exists_node = std::make_unique<ASTNode>();
+            if_exists_node->type = Clauses::IF_EXISTS;
+            root->children.push_back(std::move(if_exists_node));
+        }
+
         auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
         auto relation = std::make_unique<ASTNode>();
         relation->type = Relations::TABLE;
         relation->value = idToken.lexeme;
         root->children.push_back(std::move(relation));
     }
-    
+    else {
+        throw std::runtime_error("expected TABLE or INDEX after DROP, but found " + tokenTypeToString(tokens[pos].type));
+    }
     // if(check(tokens, pos, TokenType::FUNCTION)){
     //     expect(tokens, pos, TokenType::FUNCTION);
     //     auto function = parseFunctionDef(tokens, pos, false);

@@ -30,6 +30,7 @@ std::string tagToString(const ASTTag& tag){
                 case Clauses::ORDER_BY: return "ORDER BY";
                 case Clauses::HAVING: return "HAVING";
                 case Clauses::LIMIT: return "LIMIT";
+                case Clauses::IF_EXISTS: return "IF_EXISTS";
             }
         }
         else if constexpr(std::is_same_v<T, Relations>){

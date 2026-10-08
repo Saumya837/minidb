@@ -34,12 +34,12 @@ into a `std::variant`:
 
 ```cpp
 enum class StatementType  { SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP };
-enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT };
+enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT, IF_EXISTS };
 enum class Relations      { TABLE, JOIN, LEFT_JOIN, RIGHT_JOIN };
 enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR };
 enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION, STAR };
 enum class OrderDirection { ASC, DESC };
-enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE, ARG_LIST, QUALIFIER };
+enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE, ARG_LIST, QUALIFIER, INDEX_LIST };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType,
                              ValueType, OrderDirection, InternalNode>;
@@ -613,30 +613,100 @@ DELETE employees WHERE id = 5;
 Error: Syntax error: at or near "employees", expected FROM
 ```
 
-### `DROP TABLE`
+### `DROP` (`TABLE`, `INDEX`, `IF EXISTS`)
 
 ```
-drop := DROP TABLE IDENTIFIER SEMICOLON
+DropStat   := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
+            | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
+index_list := IDENTIFIER (COMMA IDENTIFIER)*
 ```
 
+`parseDropStatement` consumes `DROP`, then branches on `TABLE` or `INDEX`.
+Anything else throws `expected TABLE or INDEX after DROP, but found ...`.
+There is deliberately a final `else`: without it `DROP;` fell through to
+`expect(SEMICOLON)` and parsed as a valid empty `Drop`.
+
+**`DROP TABLE`**
 ```
 SQL> Drop table Employee;
 Drop
 └─> TABLE: Employee
 ```
+- Target is a plain `IDENTIFIER`: an alias on `DROP` is meaningless and is
+  rejected, not silently absorbed (`DROP TABLE Employee e;` fails at `"e"`,
+  expected `';'`).
+- The `TABLE:` node reuses `Relations::TABLE`, same as in `FROM`.
 
-- **Target is a plain `IDENTIFIER`** — an alias on `DROP` is meaningless,
-  and is rejected rather than silently absorbed:
-  ```
-  DROP TABLE Employee e;   -> at or near "e", expected ';'
-  DROP Employee;           -> at or near "Employee", expected TABLE
-  ```
-- The `TABLE:` node reuses the `Relations::TABLE` tag, same as in `FROM`.
-- Untested so far: `DROP TABLE;` and `DROP TABLE a, b;`.
-- **Proposed, not built:** `DROP TABLE IF EXISTS name` as an `IF_EXISTS`
-  marker child (identity matters downstream, unlike `AS`), requiring `IF`
-  and `EXISTS` in both `TokenType` *and* `keywordTable`. `DROP FUNCTION`
-  would need `CREATE FUNCTION` first.
+**`DROP INDEX`**
+```
+SQL> DROP INDEX a, b ON t;
+Drop
+├─> INDEX_LIST
+│   ├─> INDEX: a
+│   └─> INDEX: b
+└─> TABLE: t
+```
+- **`INDEX_LIST` wrapper.** Several same-shaped index names need a
+  container rather than colliding as flat siblings, the same reason as
+  `ARG_LIST` and `VALUE_TUPLE`. A single index still gets the wrapper, so
+  consumers never branch on count.
+- **`ON <table>` is required** (MySQL / SQL Server style). Postgres omits
+  it because index names are schema-global; this is a deliberate dialect
+  choice, not an oversight.
+- **`TABLE` means different things in the two forms.** Under `DROP TABLE`
+  it is the object being dropped; under `DROP INDEX` it is the table that
+  owns the indexes. `INDEX_LIST` is the discriminator: a binder must check
+  for it rather than just looking for a `TABLE` child.
+- The owner table is a plain `IDENTIFIER`, so an alias is rejected
+  (`DROP INDEX EMP_ID ON EMPLOYEE e;` fails at `"e"`, expected `';'`).
+
+**`IF EXISTS`**
+```
+SQL> DROP TABLE IF EXISTS t;
+Drop
+├─> IF_EXISTS
+└─> TABLE: t
+
+SQL> DROP INDEX IF EXISTS a, b ON t;
+Drop
+├─> IF_EXISTS
+├─> INDEX_LIST
+│   ├─> INDEX: a
+│   └─> INDEX: b
+└─> TABLE: t
+```
+- **A marker node, `Clauses::IF_EXISTS`, no value.** Same test as every
+  other symbol: its identity matters downstream (the executor must not
+  error when the object is missing), unlike `AS` or `;`.
+- **It is the first child of `Drop`**, so the tree reads like the SQL.
+- **`IF` and `EXISTS` are reserved words**, added to `TokenType` *and*
+  `keywordTable`. With only the enum entry, `IF` lexed as an `IDENTIFIER`
+  and `DROP TABLE IF EXISTS t` failed at `EXISTS`, expected `';'`.
+- **Position matters.** The clause is parsed right after `TABLE`/`INDEX`,
+  *before* the name. Checking after the name made the parser read `IF` as
+  the table name; in the `INDEX` branch it would have accepted
+  `DROP INDEX a, b IF EXISTS ON t`.
+- The check requires `IF` and `EXISTS` together (`pos + 1` lookahead), so
+  a lone `IF` reports `expected an identifier` rather than `expected EXISTS`.
+  Since `IF` is reserved, checking `IF` alone and then `expect(EXISTS)`
+  would give the better message.
+
+**Verified errors**
+```
+DROP INDEX EMP_ID ON;            at or near ";", expected an identifier
+DROP INDEX ON EMPLOYEE;          at or near "ON", expected an identifier
+DROP INDEX EMP_ID ON EMPLOYEE e; at or near "e", expected ';'
+DROP TABLE IF t;                 at or near "IF", expected an identifier
+DROP TABLE IF EXISTS;            at or near ";", expected an identifier
+DROP;                            expected TABLE or INDEX after DROP, but found ';'
+DROP Employee;                   expected TABLE or INDEX after DROP, but found an identifier
+```
+The last two use the older message format (no `Syntax error: at or near`)
+and should move onto `syntaxErrorLocation`.
+
+**Untested so far:** `DROP TABLE;`, `DROP TABLE a, b;`, and for `DROP INDEX`
+a trailing comma, a missing comma, a three-item list, a bare `DROP INDEX;`
+and a dotted name (`a.b`). `DROP FUNCTION` would need `CREATE FUNCTION` first.
 
 ### `SELECT *` and qualified star (`table.*`)
 
@@ -911,7 +981,9 @@ value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING
 DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
-DropStat         := DROP TABLE IDENTIFIER SEMICOLON
+DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
+                  | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
+index_list       := IDENTIFIER (COMMA IDENTIFIER)*
 
 SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
@@ -1151,7 +1223,8 @@ while (true) {
       and `ON` — via `parsePrimary`; no node created for the parens
 - [x] Multi-line REPL (buffers until `;`)
 - [x] `parseDeleteStatement()` — `DELETE FROM relation [WHERE ...]`
-- [x] `parseDropStatement()` — `DROP TABLE name`
+- [x] `parseDropStatement()` — `DROP TABLE name`, `DROP INDEX a, b ON t`,
+      both with optional `IF EXISTS`
 - [x] Postgres-style syntax error messages for `expect()` failures
 
 **Not yet done:**
@@ -1162,9 +1235,8 @@ while (true) {
 - [ ] `UPDATE` — design pending: `SET` token (enum *and* `keywordTable`),
       `ASSIGNMENT` tag, `Clauses::SET`, `operand` on the right-hand side,
       reject a dotted left-hand side
-- [ ] `DROP TABLE IF EXISTS` — `IF`/`EXISTS` tokens + `IF_EXISTS` marker
 - [ ] `CREATE TABLE` (largest: type keywords, constraints; unblocks the
-      catalog), `ALTER`, `DROP` of other objects
+      catalog), `CREATE INDEX`, `ALTER`, `DROP` of other objects
 - [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
       `LIKE`, arithmetic; plain-`JOIN` forms beyond `(LEFT|RIGHT)? JOIN`
@@ -1660,7 +1732,7 @@ Select
 Each query below is used as the target for one stage of the parser
 build-out, in increasing order of grammar coverage — from a bare
 `SELECT`/`FROM` up through joins, aliases, `INSERT`, function calls,
-`SELECT *`, parenthesized conditions, `DELETE` and `DROP TABLE`.
+`SELECT *`, parenthesized conditions, `DELETE` and `DROP`.
 
 ```sql
 -- Query 1
@@ -1775,8 +1847,26 @@ DROP TABLE Employee;
 
 -- Query 33 (error cases — must throw)
 DROP TABLE Employee e;        -- at or near "e", expected ';'
-DROP Employee;                -- at or near "Employee", expected TABLE
+DROP Employee;                -- expected TABLE or INDEX after DROP, but found an identifier
 DELETE employees WHERE id = 5; -- at or near "employees", expected FROM
+
+-- Query 34 (DROP INDEX, multiple indexes)
+DROP INDEX a, b ON t;
+
+-- Query 35 (DROP INDEX, single index)
+DROP INDEX EMP_ID ON EMPLOYEE;
+
+-- Query 36 (DROP ... IF EXISTS)
+DROP TABLE IF EXISTS t;
+DROP INDEX IF EXISTS a, b ON t;
+
+-- Query 37 (DROP error cases — must throw)
+DROP INDEX EMP_ID ON;            -- at or near ";", expected an identifier
+DROP INDEX ON EMPLOYEE;          -- at or near "ON", expected an identifier
+DROP INDEX EMP_ID ON EMPLOYEE e; -- at or near "e", expected ';'
+DROP TABLE IF t;                 -- at or near "IF", expected an identifier
+DROP TABLE IF EXISTS;            -- at or near ";", expected an identifier
+DROP;                            -- expected TABLE or INDEX after DROP, but found ';'
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

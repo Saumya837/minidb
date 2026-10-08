@@ -9,7 +9,6 @@
 std::string tagToString(const ASTTag& tag){
     return std::visit([](auto&& t)-> std::string { 
         using T = std::decay_t<decltype(t)>;
-
         if constexpr(std::is_same_v<T, StatementType>) {
             switch(t){
                 case StatementType::SELECT: return "Select";  

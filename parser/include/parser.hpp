@@ -18,6 +18,7 @@ std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, const 
 std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token>& tokens, size_t& pos, bool allow_alias = true);
 
+
 std::vector<std::unique_ptr<ASTNode>>parseArgsList(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseArg(const std::vector<Token>& tokens, size_t& pos);
 

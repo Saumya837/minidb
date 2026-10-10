@@ -1,32 +1,25 @@
-fix(parser): finish routing parse errors through parseError
+refactor(parser): extract parseIndex, reject dotted index names
 
-Every syntax error now goes through the single parseError helper, so all
-messages share one shape: Syntax error: at or near "X", <detail>
-(or "unexpected end of input, <detail>"). The parser has exactly one
-runtime_error throw, inside parseError.
+DROP INDEX parsed names inline and accepted dotted/star lexemes, since
+the lexer folds '.' and '*' into IDENTIFIER-shaped tokens
+(DROP INDEX idx.name failed later at "expected ON" instead of at the name).
+Index names now go through parseIndex, which rejects them at the token.
 
-Changed sites:
-- expectLiteral: "expected a number or string"
-- parseOperand last branch: "expected a value (column, literal or function call)"
-- parseStatement CREATE/ALTER stubs: "CREATE is not supported yet" / "ALTER is not supported yet"
-- expect(): end-of-input branch goes through parseError; syntaxErrorLocation is bounds-safe
-- parseAlias: error index was pos - 1, now pos, so the dotted alias is quoted
+Also fixes DROP errors carrying a doubled prefix
+("Syntax error: ..., Syntax error: ..."): an already-formatted message
+was being passed as the detail of another parseError.
 
-Also:
-- parseColumn takes allow_alias; INSERT column lists and GROUP BY pass
-  false, so INSERT INTO t (a x) and GROUP BY a x are rejected
-- extract literal parsing into parseLiteral, shared by the select list,
-  comparisons, and INSERT VALUES
+Decision: DROP INDEX requires ON <table> (MySQL style), not bare
+DROP INDEX idx as in Postgres.
 
 Verified:
-  INSERT INTO t (a x) VALUES (1);
-  -> Syntax error: at or near "x", expected ')'
-  INSERT INTO t (a AS x) VALUES (1);
-  -> Syntax error: at or near "AS", expected ')'
-  SELECT a FROM t GROUP BY a x;
-  -> Syntax error: at or near "x", expected ';'
-  INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
-  -> two VALUE_TUPLE children
-  SELECT a x FROM t;
-  -> COLUMN: a with ALIAS: x
-  <paste the real outputs for VALUES (a), VALUES (1, ), CREATE, WHERE ;>
+  DROP INDEX IF EXISTS a, b ON t;
+  -> Drop / IF_EXISTS / INDEX_LIST (INDEX: a, INDEX: b) / TABLE: t
+  DROP INDEX idx.name ON t;
+  -> Syntax error: at or near "idx.name", index name cannot contain '.'
+  DROP INDEX emp.* ON t;
+  -> Syntax error: at or near "emp.*", index name cannot contain '.'
+  DROP INDEX idx;
+  -> Syntax error: at or near ";", expected ON
+  DROP INDEX ;
+  -> Syntax error: at or near ";", expected an identifier

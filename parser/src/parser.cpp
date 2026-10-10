@@ -63,21 +63,20 @@ namespace {
         return tokens[pos].type == type;
     }
 
-    Token expect(const std::vector<Token> &tokens, size_t& pos, TokenType type){
+    [[noreturn]] 
+    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
+        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
+    }
+
+     Token expect(const std::vector<Token> &tokens, size_t& pos, TokenType type){
         if (pos >= tokens.size())
             parseError(tokens, pos, "Unexpected End of input, expected token type " + std::to_string(static_cast<int>(type)));
         else if (tokens[pos].type == type){
             return tokens[pos++];
         }
         else{
-            parseError(tokens, pos, "Syntax error: " + syntaxErrorLocation(tokens, pos) + ", expected "
-                + tokenTypeToString(type));
+            parseError(tokens, pos, "expected "+ tokenTypeToString(type));
         }
-    }
-
-    [[noreturn]] 
-    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
-        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
     }
 
     Token expectLiteral(const std::vector<Token> &tokens, size_t &pos){
@@ -160,6 +159,7 @@ std::unique_ptr<ASTNode> parseAssignment(const std::vector<Token>& tokens, size_
     }
     return op1;
 }
+
 std::vector<std::unique_ptr<ASTNode>> parseAssignmentList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> assignmentList;
 
@@ -240,25 +240,29 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
 //     return function;
 // }
 
+std::unique_ptr<ASTNode> parseIndex(const std::vector<Token> &tokens, size_t &pos){
+    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    if(idToken.lexeme.find('.') != std::string::npos){
+        parseError(tokens, pos - 1, "index name cannot contain '.'");
+    }
+    auto index = std::make_unique<ASTNode>();
+    index->type = ValueType::INDEX;
+    index->value = idToken.lexeme;
+    return index;
+}
+
 std::unique_ptr<ASTNode> parseIndexStatement(const std::vector<Token> &tokens, size_t &pos){
     auto indexList = std::make_unique<ASTNode>();
     indexList->type = InternalNode::INDEX_LIST;
 
-    auto index = std::make_unique<ASTNode>();
-    index->type = ValueType::INDEX;
-    auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-    index->value = idToken.lexeme;
+    auto index = parseIndex(tokens, pos);
     indexList->children.push_back(std::move(index));
 
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
-        auto nextToken = expect(tokens, pos, TokenType::IDENTIFIER);
-        auto next_index = std::make_unique<ASTNode>();
-        next_index->type = ValueType::INDEX;
-        next_index->value = nextToken.lexeme;
+        auto next_index = parseIndex(tokens, pos);
         indexList->children.push_back(std::move(next_index));
     }
-
     return indexList;
 }
 
@@ -694,6 +698,11 @@ std::unique_ptr<ASTNode> parseFromClause(const std::vector<Token>& tokens, size_
 
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    
+    if(idToken.lexeme.find('*') != std::string::npos){
+        parseError(tokens, pos, "Relation Name cannot have '*'");
+    }
+
     auto relation = std::make_unique<ASTNode>();
     relation->type = Relations::TABLE;
     relation->value = idToken.lexeme;

@@ -1,0 +1,12 @@
+fix(parser): finish routing parse errors through parseError
+
+Every syntax error now goes through the single parseError helper, so all
+messages share one shape: Syntax error: at or near "X", <detail>
+(or "unexpected end of input, <detail>").
+
+Changed sites:
+- expectLiteral: "expected a number or string"
+- parseOperand last branch: "expected a value (column, literal or function call)"
+- parseStatement CREATE/ALTER stubs: "CREATE is not supported yet" / "ALTER is not supported yet"
+- expect(): end-of-input branch goes through parseError; syntaxErrorLocation is bounds-safe
+- parseAlias: error index was pos - 1, now pos, so the dotted alias is quoted

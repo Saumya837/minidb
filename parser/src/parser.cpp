@@ -52,7 +52,7 @@ namespace {
     }
 
     std::string syntaxErrorLocation(const std::vector<Token>& tokens, size_t pos) {
-        if (tokens[pos].type == TokenType::END_OF_INPUT) {
+        if (pos >= tokens.size() || tokens[pos].type == TokenType::END_OF_INPUT) {
             return "unexpected end of input";
         }
         return "at or near \"" + tokens[pos].lexeme + "\"";
@@ -84,7 +84,7 @@ namespace {
     Token expectLiteral(const std::vector<Token> &tokens, size_t &pos){
         if(check(tokens, pos, TokenType::NUMBER)) return expect(tokens, pos, TokenType::NUMBER);
         if(check(tokens, pos, TokenType::STRING)) return expect(tokens, pos, TokenType::STRING); 
-        throw std::runtime_error("expected a value (column, literal or function call) " + std::to_string(pos));
+        throw std::runtime_error("expected a value (column, literal or function call) at pos:" + std::to_string(pos));
     }
 }
 
@@ -512,12 +512,10 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
     else if(tokens[pos].lexeme.find('.') != std::string::npos){
         if(check(tokens, pos, TokenType::IDENTIFIER)) {
             auto qualifierStarColumn = parseQualifier(tokens, pos);
-           
             if((check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER))){
                 auto alias = parseAlias(tokens, pos); // Check for alias after column
                 qualifierStarColumn->children.push_back(std::move(alias));
             }
-
             projList.push_back(std::move(qualifierStarColumn));
         }
         else{
@@ -532,12 +530,15 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
         auto column = parseColumn(tokens, pos);
         projList.push_back(std::move(column));
     }
-    else {
+    else if (check(tokens, pos, TokenType::NUMBER) || check(tokens, pos, TokenType::STRING)){
         auto literalToken = expectLiteral(tokens, pos);
         auto literalNode = std::make_unique<ASTNode>();
         literalNode->type = ValueType::LITERAL;
         literalNode->value = literalToken.lexeme;
         projList.push_back(std::move(literalNode));
+    }
+    else{
+        parseError(tokens, pos, "expected a value (column, literal or function call) " + std::to_string(pos));
     }
 
     while(check(tokens, pos, TokenType::COMMA)){
@@ -565,12 +566,15 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
             auto column = parseColumn(tokens, pos);
             projList.push_back(std::move(column));
         }
-        else{
+        else if(check(tokens, pos, TokenType::NUMBER) || check(tokens, pos, TokenType::STRING)){
             auto literalToken = expectLiteral(tokens, pos);
             auto literalNode = std::make_unique<ASTNode>();
             literalNode->type = ValueType::LITERAL;
             literalNode->value = literalToken.lexeme;
             projList.push_back(std::move(literalNode));
+        }
+        else{
+            parseError(tokens, pos, "expected a value (column, literal or function call) after ',' ");
         }
     }
     return projList;
@@ -801,25 +805,23 @@ std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& 
     if(check(tokens, pos, TokenType::IDENTIFIER) && check(tokens, pos+1, TokenType::LPAREN)){
         op = parseFunctionCall(tokens, pos);
     }
-
     else if(check(tokens, pos, TokenType::IDENTIFIER)){
         if(tokens[pos].lexeme.find('.') != std::string::npos){
             auto operand = parseQualifier(tokens, pos, false);
             return operand;
         } 
-
         auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
         op->type = ValueType::COLUMN;
         op->value = idToken.lexeme;
     }
 
     else if(check(tokens, pos, TokenType::STRING)){
-        auto idToken = expect(tokens, pos, TokenType::STRING);
+        auto idToken = expectLiteral(tokens, pos);
         op->type = ValueType::LITERAL;
         op->value = idToken.lexeme;
     }
     else{
-        auto idToken = expect(tokens, pos, TokenType::NUMBER);
+        auto idToken = expectLiteral(tokens, pos);
         op->type = ValueType::LITERAL;
         op->value = idToken.lexeme;
     }
@@ -893,7 +895,7 @@ std::unique_ptr<ASTNode> parseAlias(const std::vector<Token> &tokens, size_t& po
     }
 
     if (tokens[pos].lexeme.find('.') != std::string::npos) {
-        parseError(tokens, pos - 1, "alias cannot contain '.'"); 
+        parseError(tokens, pos, "alias cannot contain '.'"); 
     }
 
     auto idToken =  expect(tokens, pos, TokenType::IDENTIFIER);
@@ -920,13 +922,8 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
     order_item->type = InternalNode::ORDER_ITEM;
     if(check(tokens, pos, TokenType::IDENTIFIER)){
         if(tokens[pos].lexeme.find('.') != std::string::npos){
-            if(check(tokens, pos, TokenType::IDENTIFIER)) {
-                auto item = parseQualifier(tokens, pos, false);
-                order_item->children.push_back(std::move(item));
-            }
-            else{
-                parseError(tokens, pos, "expected a column or function after ','");
-            }
+            auto item = parseQualifier(tokens, pos, false);
+            order_item->children.push_back(std::move(item));
         } 
         else{
             Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
@@ -936,13 +933,17 @@ std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token> &tokens, size_t
             order_item->children.push_back(std::move(col));
         }
     }
-    else{
+    else if (check(tokens, pos, TokenType::NUMBER)){
         Token posToken = expect(tokens, pos, TokenType::NUMBER);
         auto posNode = std::make_unique<ASTNode>();
         posNode->type = ValueType::POSITION;
         posNode->value = posToken.lexeme;
         order_item->children.push_back(std::move(posNode));
     }
+    else{
+        return nullptr;
+    }
+
     auto sortDir = std::make_unique<ASTNode>();
     if (check(tokens, pos, TokenType::DESC)){
         expect(tokens, pos, TokenType::DESC);
@@ -967,12 +968,22 @@ std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token> &tokens, si
     orderby->type = Clauses::ORDER_BY;
 
     auto order_item = parseOrderItem(tokens, pos);
-    orderby->children.push_back(std::move(order_item));
+    if(order_item){
+        orderby->children.push_back(std::move(order_item));
+    }
+    else{
+        parseError(tokens, pos, "expected column or position for ORDER BY");
+    }
 
     while(check(tokens, pos, TokenType::COMMA)){
         expect(tokens, pos, TokenType::COMMA);
         auto next_order_item = parseOrderItem(tokens, pos);
-        orderby->children.push_back(std::move(next_order_item));
+        if(next_order_item){
+            orderby->children.push_back(std::move(next_order_item));
+        }
+        else{
+            parseError(tokens, pos, "expected column or position after ','");
+        }
     }
     return orderby;
 }

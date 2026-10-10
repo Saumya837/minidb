@@ -698,9 +698,9 @@ std::unique_ptr<ASTNode> parseFromClause(const std::vector<Token>& tokens, size_
 
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-    
+
     if(idToken.lexeme.find('*') != std::string::npos){
-        parseError(tokens, pos, "Relation Name cannot have '*'");
+        parseError(tokens, pos, "relation Name cannot contain '*'");
     }
 
     auto relation = std::make_unique<ASTNode>();

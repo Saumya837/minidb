@@ -34,10 +34,10 @@ into a `std::variant`:
 
 ```cpp
 enum class StatementType  { SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP };
-enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT, IF_EXISTS };
+enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT, IF_EXISTS, DISTINCT, SET };
 enum class Relations      { TABLE, JOIN, LEFT_JOIN, RIGHT_JOIN };
 enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR };
-enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION, STAR };
+enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION, STAR, INDEX };
 enum class OrderDirection { ASC, DESC };
 enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE, ARG_LIST, QUALIFIER, INDEX_LIST };
 
@@ -157,8 +157,10 @@ FROM
 └─> LEFT_JOIN
     ├─> TABLE: departments
     └─> EQUALS
-        ├─> COLUMN: employees.dept_id
-        └─> COLUMN: departments.id
+        ├─> COLUMN: dept_id
+        │   └─> QUALIFIER: employees
+        └─> COLUMN: id
+            └─> QUALIFIER: departments
 ```
 Comma-separated relations (`FROM a, b`) need no such wrapper — they
 become flat `TABLE` siblings under `FROM`, since there's no per-item
@@ -183,11 +185,15 @@ FROM
     │   └─> ALIAS: mang
     └─> AND
         ├─> EQUALS
-        │   ├─> COLUMN: emp.dept_id
-        │   └─> COLUMN: mang.dept_id
+        │   ├─> COLUMN: dept_id
+        │   │   └─> QUALIFIER: emp
+        │   └─> COLUMN: dept_id
+        │       └─> QUALIFIER: mang
         └─> EQUALS
-            ├─> COLUMN: emp.location
-            └─> COLUMN: mang.location
+            ├─> COLUMN: location
+            │   └─> QUALIFIER: emp
+            └─> COLUMN: location
+                └─> QUALIFIER: mang
 ```
 `OR` binds looser than `AND` inside `ON`, same as everywhere else, since
 this is the exact same `or_expr`/`and_expr` chain, not a parallel
@@ -198,14 +204,19 @@ implementation:
 ```
 OR
 ├─> EQUALS
-│   ├─> COLUMN: emp.id
-│   └─> COLUMN: mang.id
+│   ├─> COLUMN: id
+│   │   └─> QUALIFIER: emp
+│   └─> COLUMN: id
+│       └─> QUALIFIER: mang
 └─> AND
     ├─> EQUALS
-    │   ├─> COLUMN: emp.backup_manager_id
-    │   └─> COLUMN: mang.id
+    │   ├─> COLUMN: backup_manager_id
+    │   │   └─> QUALIFIER: emp
+    │   └─> COLUMN: id
+    │       └─> QUALIFIER: mang
     └─> EQUALS
-        ├─> COLUMN: emp.active
+        ├─> COLUMN: active
+        │   └─> QUALIFIER: emp
         └─> LITERAL: 1
 ```
 No grammar *text* change was needed for this — the written grammar
@@ -251,6 +262,14 @@ the node just built. The no-`AS` form (`salary s`, `employees e`) is
 supported alongside the `AS` form — `alias := AS? IDENTIFIER` makes `AS`
 itself optional, not the alias.
 
+**Who attaches the alias (v6 rule).** The alias is attached by the
+*caller* that owns the grammar slot, never by the function that builds
+the base node: the select-list item, `parseColumn(allow_alias)`,
+`parseFunctionCall(allow_alias)` and `parseRelation`. This is the
+"node builder must not consume tokens belonging to the enclosing rule"
+rule — see **Alias rules and the node-builder rule** below for the three
+bugs that taught it.
+
 Aliases compose correctly with joins: once a table is aliased, its
 alias — not its original name — is what appears in qualified column
 references inside `ON`:
@@ -265,8 +284,10 @@ FROM
     ├─> TABLE: departments
     │   └─> ALIAS: dept
     └─> EQUALS
-        ├─> COLUMN: emp.dept_id
-        └─> COLUMN: dept.id
+        ├─> COLUMN: dept_id
+        │   └─> QUALIFIER: emp
+        └─> COLUMN: id
+            └─> QUALIFIER: dept
 ```
 
 ### `HAVING`
@@ -298,7 +319,7 @@ if (check(tokens, pos, TokenType::HAVING)) {
         auto havingNode = parseHavingClause(tokens, pos);
         root->children.push_back(std::move(havingNode));
     } else {
-        throw std::runtime_error("HAVING clause cannot exist without GROUP BY");
+        parseError(tokens, pos, "HAVING requires GROUP BY");
     }
 }
 ```
@@ -363,6 +384,25 @@ positional match against a real table schema either way — it has no
 schema access — so accepting the shorter form costs nothing at this
 layer; that validation belongs to semantic analysis regardless of which
 form is used.
+
+**The column list is plain identifiers.** `parseColumn` used to accept an
+optional alias, and `INSERT` reused it, so `INSERT INTO t (a x) VALUES (1)`
+parsed and hung `ALIAS: x` under `COLUMN: a`. `parseColumn` now takes an
+`allow_alias` flag: the select list passes `true`; the `INSERT` column
+list and `GROUP BY` pass `false`.
+```
+INSERT INTO t (a x) VALUES (1);       Syntax error: at or near "x", expected ')'
+INSERT INTO t (a AS x) VALUES (1);    Syntax error: at or near "AS", expected ')'
+SELECT a FROM t GROUP BY a x;         Syntax error: at or near "x", expected ';'
+```
+The last message is accurate but terse (a `,`, `HAVING`, `ORDER` or
+`LIMIT` could also follow); the trailing-token check planned for
+`parseSQL` is the right place to improve it. `VALUES` items go through
+`parseLiteral` (`NUMBER | STRING` only):
+```
+INSERT INTO t VALUES (a);       Syntax error: at or near "a", expected a number or string
+INSERT INTO t VALUES (1, );     Syntax error: at or near ")", expected a number or string
+```
 
 **Multi-row `VALUES` and `VALUE_TUPLE`.** `value_tuple`'s
 `(COMMA value_tuple)*` repetition is supported from the start. Each row
@@ -463,7 +503,8 @@ something appearing in the projection list, never inside a comparison.
    by confirming the alias case now throws:
    ```
    HAVING SUM(salary) AS s > 5000;
-   -- Error: Expected a comparator at position 12
+   -- Error at the token AS (originally "Expected a comparator at position 12";
+   --  since moved to the parseError format — see Syntax error messages)
    -- (AS is left unconsumed after the function call, since allowAlias=false
    --  never checks for it, so the next token a comparator-check sees is AS)
    ```
@@ -489,7 +530,8 @@ argument". With it, `FUNCTION` has the fixed shape
 ```
 FUNCTION: SUM
 ├─> ARG_LIST
-│   └─> COLUMN: emp.salary
+│   └─> COLUMN: salary
+│       └─> QUALIFIER: emp
 └─> ALIAS: total_salary        <- sibling of ARG_LIST, not a child
 ```
 
@@ -508,34 +550,71 @@ FUNCTION: SUM
 
 ### Syntax error messages
 
-Parse failures use a Postgres-style format, produced in one place
-(`syntaxErrorLocation` builds the `at or near "X"` / `unexpected end of
-input` part, `tokenTypeToString` turns a `TokenType` into the name shown
-after `expected`):
+Parse failures use a Postgres-style format and are produced in **one
+place**, the `parseError` helper:
+
+```cpp
+[[noreturn]] void parseError(const std::vector<Token>& tokens, size_t idx,
+                             const std::string& detail);
+// throws std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx)
+//                           + ", " + detail)
+```
+`syntaxErrorLocation` builds the `at or near "X"` / `unexpected end of
+input` part (bounds-safe: an index past the end reads as end of input),
+and `tokenTypeToString` turns a `TokenType` into the name shown after
+`expected`. The whole parser contains exactly **one** `throw
+std::runtime_error` — the one inside `parseError`
+(`grep -n "runtime_error" parser.cpp` should show a single line). Every
+other failure path calls `parseError`.
 
 ```
 Syntax error: at or near "e", expected ';'
 Syntax error: at or near "Employee", expected TABLE
-Syntax error: unexpected end of input, expected ...
+Syntax error: unexpected end of input, expected ';'
 ```
 
-`expect()` uses these as its generic fallback, so every mandatory token
-gets a precise message for free, with no per-call-site strings. Specific
-messages exist only where the generic one would mislead, e.g. a trailing
-comma in a projection list: `expected a column or function after ','`.
+**Conventions**
+- **`idx` is the offending token.** Validate *before* consuming
+  (`parseError(tokens, pos, ...)`), so `pos` is the culprit and no
+  `pos - 1` arithmetic is needed. Two sites originally ran the check
+  after `pos++` and quoted the *next* token (`parseAlias`, the relation
+  `*` check); both were fixed.
+- **`expect()` is the generic fallback.** Every mandatory token gets a
+  precise `expected X` message for free, with no per-call-site strings.
+  Specific messages exist only where the generic one would mislead.
+- **`detail` is plain text, never a formatted message.** Passing an
+  already-built `Syntax error: ...` string as `detail` produced doubled
+  prefixes on the `DROP` paths
+  (`Syntax error: at or near ";", Syntax error: at or near ";", expected ON`).
+  Let the first exception propagate; do not catch and re-wrap.
+- **Wording:** lowercase, no trailing punctuation, no `at pos:N` — the
+  location is the helper's job.
+
+**Messages currently produced (all through `parseError`)**
+
+| Where | Message |
+|---|---|
+| `parseStatement` | `expected SELECT, INSERT, UPDATE, DELETE or DROP` |
+| `parseStatement`, `CREATE` / `ALTER` | `CREATE is not supported yet` / `ALTER is not supported yet` |
+| `parseDropStatement` | `expected TABLE or INDEX` |
+| `parseLiteral` / `expectLiteral` | `expected a number or string` |
+| `parseOperand`, last branch | `expected a value (column, literal or function call)` |
+| `parseProjectionList` | `expected a column or function after ','` |
+| `parseOrderItem` | `expected column or position for ORDER BY` / `... after ','` |
+| `parseSelectStatement` | `HAVING requires GROUP BY` |
+| `parseQualifier` | `malformed qualified name`, `star is only allowed in the select list` |
+| `parseAlias` | `alias cannot contain '.'` |
+| `parseIndex` | `index name cannot contain '.'` |
+| `parseRelation` | `relation name cannot contain '*'` |
+| `expect()` | `expected <token>` / `unexpected end of input, expected <token>` |
 
 Errors fall in three buckets, and only the first two exist yet:
 
 | Kind | Raised by | Example |
 |---|---|---|
 | Lexical | `tokenize()` | unterminated string, bad character |
-| Syntax | parser | `DELETE employees WHERE ...` (expected FROM) |
+| Syntax | parser (`parseError`) | `DELETE employees WHERE ...` (expected FROM) |
 | Semantic | future binder | unknown table, `HAVING` on a non-grouped column |
-
-Old-format messages that still need converting: `parseQualifier`'s
-`invalid identifier`, the comparator error (`Expected a comparator at
-position N`), `Unknown statement type`, and the `HAVING` without `GROUP BY`
-message.
 
 ### Parenthesized expressions
 
@@ -611,6 +690,12 @@ Verified errors:
 ```
 DELETE employees WHERE id = 5;
 Error: Syntax error: at or near "employees", expected FROM
+```
+The statement must end in `;` — `parseDeleteStatement` calls
+`expect(SEMICOLON)` after the optional `WHERE`, so trailing junk is caught:
+```
+DELETE FROM t WHERE id = 1 foo;
+Error: Syntax error: at or near "foo", expected ';'
 ```
 
 ### `DROP` (`TABLE`, `INDEX`, `IF EXISTS`)
@@ -691,22 +776,35 @@ Drop
   Since `IF` is reserved, checking `IF` alone and then `expect(EXISTS)`
   would give the better message.
 
+**`parseIndex`.** Index names are parsed by their own function
+(`expect(IDENTIFIER)` → `ValueType::INDEX` node). Because the lexer folds
+`.` and `*` into IDENTIFIER-shaped tokens, a plain `expect(IDENTIFIER)`
+accepted `idx.name` and `emp.*` as index names and only failed later at
+`ON`. `parseIndex` rejects them at the token:
+```
+DROP INDEX idx.name ON t;   Syntax error: at or near "idx.name", index name cannot contain '.'
+DROP INDEX emp.* ON t;      Syntax error: at or near "emp.*", index name cannot contain '.'
+```
+
 **Verified errors**
 ```
+DROP INDEX idx;                  at or near ";", expected ON
+DROP INDEX ;                     at or near ";", expected an identifier
 DROP INDEX EMP_ID ON;            at or near ";", expected an identifier
 DROP INDEX ON EMPLOYEE;          at or near "ON", expected an identifier
 DROP INDEX EMP_ID ON EMPLOYEE e; at or near "e", expected ';'
 DROP TABLE IF t;                 at or near "IF", expected an identifier
 DROP TABLE IF EXISTS;            at or near ";", expected an identifier
-DROP;                            expected TABLE or INDEX after DROP, but found ';'
-DROP Employee;                   expected TABLE or INDEX after DROP, but found an identifier
+DROP;                            at or near ";", expected TABLE or INDEX
+DROP Employee;                   at or near "Employee", expected TABLE or INDEX
 ```
-The last two use the older message format (no `Syntax error: at or near`)
-and should move onto `syntaxErrorLocation`.
+All of these go through `parseError`. (A doubled
+`Syntax error: ..., Syntax error: ...` prefix on the `DROP INDEX` paths
+was fixed; see **Syntax error messages**.)
 
 **Untested so far:** `DROP TABLE;`, `DROP TABLE a, b;`, and for `DROP INDEX`
-a trailing comma, a missing comma, a three-item list, a bare `DROP INDEX;`
-and a dotted name (`a.b`). `DROP FUNCTION` would need `CREATE FUNCTION` first.
+a trailing comma, a missing comma and a three-item list. `DROP FUNCTION`
+would need `CREATE FUNCTION` first.
 
 ### `SELECT *` and qualified star (`table.*`)
 
@@ -742,69 +840,53 @@ content. Disambiguating "is this plain, qualified, or a qualified star"
 stays entirely a parse-time decision, made once, uniformly, for both
 `STAR` and `COLUMN`.
 
-**`parseQualifier`'s asymmetric consumption contract.** It's given the
-token's lexeme already known to contain a `.` (callers check that
-before calling), and makes one of two decisions:
-```cpp
-std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token>& tokens, size_t& pos){
-    const std::string& current_token = tokens[pos].lexeme;
-    size_t len = current_token.find('.');
+**Qualifier handling in `parseQualifier` (v6).** The caller checks that
+the current token is an `IDENTIFIER` *by type* and that its lexeme contains
+a `.`, then calls `parseQualifier(tokens, pos, allow_star)`, which **always
+consumes that token** and builds one node:
 
-    if (current_token.find('.', len + 1) != std::string::npos ||
-        len == 0 || len == current_token.size() - 1)
-        throw std::runtime_error("invalid identifier: " + current_token);
+- Validates the shape up front and rejects `emp..id`, `emp.`, `.id`
+  (multiple dots, or an empty side): `malformed qualified name`, reported at
+  the token.
+- Suffix `*` and `allow_star == true`: a `STAR` node with a `QUALIFIER`
+  child (`emp.*`).
+- Suffix `*` and `allow_star == false`: `star is only allowed in the
+  select list`. Only the select list passes `true`; `ORDER BY`, `GROUP BY`,
+  function arguments, `WHERE`, `ON` and `SET` pass `false`.
+- Otherwise: `COLUMN: id` with a `QUALIFIER: emp` child.
+- It does **not** look for an alias. Callers attach aliases (see below).
 
-    if (current_token.substr(len + 1) != "*") {
-        // Not a qualified star - shape is valid, but leave the token
-        // untouched so parseColumn consumes it normally.
-        return nullptr;
-    }
+**Dispatch is on token type, not lexeme text.** `3.14` (a `NUMBER`) and
+`'a.b'` (a `STRING`) both contain a dot. An early version dispatched on
+`lexeme.find('.')`, so `SELECT 3.14` became a bogus qualified column. The
+guard is `tokens[pos].type == IDENTIFIER` first, dot second.
 
-    auto qualifier = std::make_unique<ASTNode>();
-    qualifier->type = InternalNode::QUALIFIER;
-    qualifier->value = current_token.substr(0, len);
+The v5 version returned `nullptr` *without* consuming for plain qualified
+columns and consumed only for stars. That asymmetry is gone: the function
+now has one contract (consume, build, return), and the callers decide
+whether to call it. The earlier decoy-vector / `const_cast` approach is
+long gone too; `tokens` is `const&` everywhere and nothing mutates it.
 
-    auto starNode = std::make_unique<ASTNode>();
-    starNode->type = ValueType::STAR;
-    starNode->children.push_back(std::move(qualifier));
-
-    pos++;  // we decided this token is a qualified star, so we consume it
-
-    return starNode;
-}
+**Design decision (reversed from v5): `QUALIFIER` is attached to plain
+`COLUMN` as well as `STAR`.** v5 left `emp.id` folded into the `COLUMN`
+node's `.value` string and noted that the binder would have to re-split it,
+duplicating `parseQualifier`'s logic. That was the wrong side of the
+trade-off: resolving `emp.id = mang.id` needs the table qualifier exactly
+as much as `mang.*` does. The parser already knows the split, so it
+records it once, structurally, and the binder reads a child instead of
+re-parsing a string.
 ```
-- Rejects malformed shapes up front: `emp..id`, `emp.`, `.id` (multiple
-  dots, or an empty side).
-- If the suffix after the dot is `*`: builds the full `STAR` node
-  (with its `QUALIFIER` child) itself, and advances `pos` itself — it's
-  the one deciding this token means something `parseStar` alone
-  wouldn't recognize, so it owns consuming it.
-- Otherwise: returns `nullptr` **without** advancing `pos`, leaving the
-  original token untouched for `parseColumn` to consume normally right
-  after.
-
-This asymmetry — sometimes consuming, sometimes not — was a deliberate
-choice over the alternative of mutating the token stream in place
-(rewriting `tokens[pos]` from an `IDENTIFIER` with lexeme `"emp.*"` to a
-`STAR` with lexeme `"*"`, which an earlier version of this did). The
-mutation version worked, but only via a `const_cast` on a `tokens`
-reference declared `const` several call frames up — legal only because
-the underlying vector happened not to be truly `const` anywhere in the
-chain, and dishonest about what the function's own signature claimed.
-Returning a decision instead of rewriting shared state removes the need
-for that cast entirely.
-
-**Design decision: `QUALIFIER` is attached only to `STAR`, not to plain
-`COLUMN`.** A qualified column (`emp.id`) keeps its qualifier folded
-into the `COLUMN` node's `.value` string as-is, rather than split into a
-structural child the way `STAR` gets one. This is a real trade-off, not
-a free simplification: resolving `emp.id = mang.id` in a join needs the
-table qualifier just as much as `mang.*` does — the binder will have to
-re-derive the table name from the `COLUMN`'s string later (duplicating
-the same split logic `parseQualifier` already does) rather than reading
-a child node the way it can for `STAR`. Chosen anyway, for now, to keep
-`COLUMN` from gaining a child that's barely tested yet; worth revisiting
-once the binder actually needs to resolve qualified columns.
+SELECT emp.name FROM employees emp WHERE emp.id = 5;
+```
+```
+COLUMN: name
+└─> QUALIFIER: emp
+```
+The `QUALIFIER`'s value is the table (or alias) name exactly as written;
+the parser does not check that it names anything. That is the binder's job.
+Every `COLUMN: x.y` tree in earlier versions of this document is now
+`COLUMN: y` with a `QUALIFIER: x` child, including the `ON`, `ORDER BY`,
+`GROUP BY` and function-argument trees below.
 
 **Three bugs caught while wiring this up**, all variations of "who
 actually advances the real parser cursor":
@@ -829,11 +911,173 @@ SELECT emp.department, emp.salary, mang.* FROM employees AS emp
   LEFT JOIN manager AS mang ON emp.id = mang.id;
 ```
 ```
-├─> COLUMN: emp.department
-├─> COLUMN: emp.salary
+├─> COLUMN: department
+│   └─> QUALIFIER: emp
+├─> COLUMN: salary
+│   └─> QUALIFIER: emp
 └─> STAR
     └─> QUALIFIER: mang
 ```
+
+### `UPDATE`
+
+```
+UpdateStat := UPDATE relation SET assignment (COMMA assignment)* where_clause? SEMICOLON
+assignment := column EQUALS operand
+```
+```
+UPDATE employees SET salary = 6000, dept = 'IT' WHERE id = 5;
+```
+```
+Update
+├─> TABLE: employees
+├─> SET
+│   ├─> EQUALS
+│   │   ├─> COLUMN: salary
+│   │   └─> LITERAL: 6000
+│   └─> EQUALS
+│       ├─> COLUMN: dept
+│       └─> LITERAL: IT
+└─> WHERE
+    └─> EQUALS
+        ├─> COLUMN: id
+        └─> LITERAL: 5
+```
+- **Target is a `relation`**, like `DELETE`: `WHERE` and `SET` may name it
+  by alias, so the alias must be consumable.
+- **`Clauses::SET` wrapper.** The assignments live under a `SET` node,
+  matching the `FROM`/`WHERE` clause nodes. `SET` is a reserved word: it
+  went into `TokenType` *and* `keywordTable`, and forgetting the table
+  entry made `SET` lex as an identifier.
+- **No new `ASSIGNMENT` tag.** An assignment reuses `ExpressionType::EQUALS`.
+  The cost is that the same node means "compare" under `WHERE` and "assign"
+  under `SET`; **the binder must check the parent** (`SET` vs `WHERE`) to
+  tell them apart. Chosen over a new tag because the tree shape is
+  identical (column on the left, operand on the right) and a second tag
+  would have forced every consumer to handle two equal-shaped nodes.
+- **Left side is a `column`, qualifier allowed** (`SET e.salary = 1`,
+  MySQL-style). The parser does not check that the qualifier names the
+  target; the binder must verify it matches the target relation or alias.
+  Aliases on the left are not allowed.
+- **Right side is an `operand`**: a literal, a column or a function call.
+  Arithmetic (`SET salary = salary + 1000`) is not supported yet — it needs
+  the expression grammar to grow first.
+- Like the other statements, it ends with `expect(SEMICOLON)`.
+
+### `DISTINCT`
+
+```
+SelectStat := SELECT DISTINCT? projection_list ...
+```
+`DISTINCT` is a childless **marker node**, `Clauses::DISTINCT`, directly
+under `Select`, by the same test as `IF_EXISTS`: whether it is present
+changes what the executor must do, so its identity matters downstream,
+unlike `AS` or `;`. `DISTINCT` is a reserved word (enum *and*
+`keywordTable`).
+
+### Literals in the select list
+
+`projection_item` accepts a literal: `SELECT 3.14`, `SELECT name, 1`,
+`SELECT 'a.b' FROM t`. They share `parseLiteral` with `INSERT VALUES`
+(`NUMBER | STRING` only; `parseLiteral` wraps `expectLiteral` and builds
+the `LITERAL` node). The dispatch is on token *type*: the string `'a.b'`
+contains a dot but is a `STRING`, so it is a literal, not a qualified
+column.
+
+**Decision pending:** an alias on a literal (`SELECT 1 AS one`) is
+currently rejected. It is valid SQL; accepting it means giving the
+literal item an alias slot the way `column` and `function_call` have one.
+
+### Alias rules and the node-builder rule
+
+**Rule: a function that builds a node must not consume tokens that belong
+to the enclosing rule.** The alias leak happened three times before it
+became a rule:
+
+1. `parseArg` called `parseColumn`, which swallowed an alias, so
+   `SUM(emp.salary AS s)` parsed.
+2. `parseOperand` called `parseFunctionCall` with aliasing on, so an alias
+   after a function call in `HAVING`/`WHERE` was swallowed.
+3. `parseQualifier` had its own alias block (with an `else` that threw
+   "alias is not allowed" on perfectly ordinary input).
+
+The cure in each case was the same: the builder builds, and the **caller
+that owns the grammar slot decides whether an alias is legal there**.
+`parseColumn(allow_alias)` and `parseFunctionCall(allow_alias)` take a flag;
+`parseQualifier` has no alias logic at all.
+
+| Slot | Alias? |
+|---|---|
+| select-list column, function call | yes |
+| `FROM` / `JOIN` relation | yes |
+| function arguments, operands | no |
+| `INSERT` column list, `GROUP BY` | no |
+| `UPDATE` / `DELETE` / `DROP` targets: `UPDATE` and `DELETE` take a relation (alias allowed); `DROP` and `INSERT` targets do not | see statement |
+| literal in the select list | no (pending) |
+
+**Dotted aliases are rejected.** The lexer folds `.` into identifier
+tokens, so `FROM employees e.salary` would otherwise lex `e.salary` as a
+valid alias:
+```
+SELECT a FROM employees e.salary;
+Syntax error: at or near "e.salary", alias cannot contain '.'
+```
+
+### Boolean expression chains (`AND` / `OR`)
+
+`or_expr` and `and_expr` are **accumulator loops**, which is what makes
+`a AND b AND c AND d` left-associative and unlimited in length:
+```cpp
+auto left = parseAndExpr(tokens, pos);
+while (check(tokens, pos, TokenType::OR)) {
+    expect(tokens, pos, TokenType::OR);
+    auto right = parseAndExpr(tokens, pos);
+    auto node = std::make_unique<ASTNode>();
+    node->type = ExpressionType::OR;
+    node->children.push_back(std::move(left));
+    node->children.push_back(std::move(right));
+    left = std::move(node);
+}
+return left;
+```
+An earlier version used `if` instead of `while` and read only two
+operands, so chains of three or more conditions broke (and a later patch
+that returned from inside the loop, or moved from an already-moved
+child, broke differently). The fix was the shape above: parse one operand,
+then fold each `OP operand` pair into the running result.
+
+### Relation names
+
+A relation name is **one `IDENTIFIER` token, stored verbatim**. It may
+contain a `.` (so `schema.table` is accepted and kept as the string
+`schema.table`) but never a `*`:
+```
+SELECT a FROM emp.*;
+Syntax error: at or near "emp.*", relation name cannot contain '*'
+```
+Whether `emp.name` names a real schema and table is **not a parser
+question**. The binder will split the name on `.` and resolve both parts
+against the catalog, the same convention it uses for qualified columns.
+
+**Open decision:** introduce a schema qualifier in the tree
+(`TABLE: employees` with a `QUALIFIER: hr` child, mirroring qualified
+columns) or keep the verbatim string until the catalog has schemas. The
+case for doing it before the binder exists is that no code reads relation
+values yet, so changing the tree shape later costs more. If done: at most
+one dot (`db.schema.table` is a separate decision), and reuse the dot
+validation in `parseQualifier` rather than copying it.
+
+### Design lessons from this stage
+
+- **Single function, single job.** The three alias leaks, the doubled
+  error prefix and the dotted index names were all one function doing a
+  neighbour's job.
+- **Test ordinary inputs, not only error cases.** Bugs in
+  `parseQualifier` (`else { throw }`), `3.14` as a qualified column and
+  the two-operand `AND` limit were all found by trivially normal queries.
+- **Rebuild before believing a stale error message.** Several "bugs"
+  were an old binary. If a message doesn't match the source, grep the
+  source for the string first.
 
 ---
 
@@ -974,39 +1218,38 @@ files.)
 ### Grammar
 
 ```
-Statement        := SelectStat | InsertStat | DeleteStat | DropStat
+Statement        := SelectStat | InsertStat | UpdateStat | DeleteStat | DropStat
 
-InsertStat       := INSERT INTO IDENTIFIER (LPAREN column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
+InsertStat       := INSERT INTO IDENTIFIER (LPAREN plain_column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
 value_tuple      := LPAREN value_list RPAREN
 value_list       := literal (COMMA literal)*
 literal          := NUMBER | STRING
+UpdateStat       := UPDATE relation SET assignment (COMMA assignment)* where_clause? SEMICOLON
+assignment       := column EQUALS operand        # column: no alias; qualifier allowed
 DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
 DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
                   | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
+index_list       := index (COMMA index)*
+index            := IDENTIFIER                   # no '.' or '*'
 
-UpdateStat       := UPDATE relation SET assignment_list where_clause? SEMICOLON
-assignment_list  := assignment (COMMA assignment)*
-assignment       := IDENTIFIER EQUALS operand
-
-index_list       := IDENTIFIER (COMMA IDENTIFIER)*
-
-SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
+SelectStat       := SELECT DISTINCT? projection_list from_clause where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := STAR | qualified_star | function_call | column
+projection_item  := STAR | qualified_star | function_call | literal | column
 qualified_star   := IDENTIFIER_DOT_STAR      # lexed as one token, e.g. emp.*
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := function_call | IDENTIFIER | literal
+arg_item         := function_call | column | literal     # no alias inside arguments
 
-column_list       := column (COMMA column)*
-column            := IDENTIFIER alias?
+plain_column_list := plain_column (COMMA plain_column)*  # INSERT, GROUP BY: no alias
+column            := qualified_name alias?               # select list only for alias
+qualified_name    := IDENTIFIER                          # optionally table.column
 
 from_clause       := FROM relation (COMMA relation)* joins*
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
-relation          := IDENTIFIER alias?
-alias             := AS? IDENTIFIER
+relation          := IDENTIFIER alias?                   # may contain '.', never '*'
+alias             := AS? IDENTIFIER                      # no '.'
 
 where_clause      := WHERE condition
 having_clause     := HAVING condition   # requires a preceding group_by_clause
@@ -1020,7 +1263,7 @@ comparison        := operand comparator operand
 comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
 operand           := function_call | IDENTIFIER | NUMBER | STRING
 
-group_by_clause   := GROUP BY column_list
+group_by_clause   := GROUP BY plain_column_list
 order_by_clause   := ORDER BY order_item (COMMA order_item)*
 order_item        := (column | position) (ASC | DESC)?
 position          := NUMBER
@@ -1041,8 +1284,8 @@ reused, unmodified, by `HAVING` and — as of the compound-`ON` fix above
 — fully by `ON` as well; all three clauses share one precedence
 implementation rather than three parallel ones.
 
-**Why `column_list` (used by `GROUP BY`/`ORDER BY`) stayed separate from
-`projection_list` (used by `SELECT`).** `GROUP BY SUM(x)` isn't valid
+**Why the plain column list (used by `GROUP BY` and the `INSERT` column
+list) stayed separate from `projection_list` (used by `SELECT`).** `GROUP BY SUM(x)` isn't valid
 SQL — you can't group rows by an aggregate result computed from those
 same rows. So only the `SELECT` list needed the ability to hold a
 function call; `column_list` deliberately kept its original, narrower
@@ -1108,10 +1351,12 @@ matches.**
 std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t& pos) {
     if (check(tokens, pos, TokenType::SELECT))       return parseSelectStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::INSERT))  return parseInsertStatement(tokens, pos);
+    else if (check(tokens, pos, TokenType::UPDATE))  return parseUpdateStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::DELETE))  return parseDeleteStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::DROP))    return parseDropStatement(tokens, pos);
-    // ... UPDATE, CREATE, ALTER still stubs ...
-    else throw std::runtime_error("Unknown statement type at position " + std::to_string(pos));
+    else if (check(tokens, pos, TokenType::CREATE))  parseError(tokens, pos, "CREATE is not supported yet");
+    else if (check(tokens, pos, TokenType::ALTER))   parseError(tokens, pos, "ALTER is not supported yet");
+    else parseError(tokens, pos, "expected SELECT, INSERT, UPDATE, DELETE or DROP");
 }
 ```
 
@@ -1124,9 +1369,9 @@ won't catch `SELECT FROM;` (missing columns) — `parseSelectStatement` /
 `parseProjectionList` will, when they expect an identifier and find
 `FROM` instead.
 
-Sub-parsers other than `parseSelectStatement`/`parseInsertStatement`/
-`parseDeleteStatement`/`parseDropStatement` (`UPDATE`, `CREATE`, `ALTER`)
-are not written yet.
+`CREATE` and `ALTER` are recognised but not implemented; they fail with a
+proper syntax error at the keyword rather than falling through to
+"unknown statement".
 
 `parseGroupByClause` calls `parseColumnList()` directly rather than
 duplicating comma-separated-identifier logic, since `GROUP BY
@@ -1195,64 +1440,61 @@ while (true) {
       decimals), string literals, comparison operators, punctuation
       (incl. `(`, `)`, `*`)
 - [x] `ASTTag`, `ASTNode`, `printAST()`
-- [x] `check()` / `expect()` helpers
-- [x] `parseStatement()` dispatcher
-- [x] `parseSelectStatement()` — full clause set: projection list, `FROM`,
-      `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`
-- [x] `parseColumnList()` / `parseColumn()` (with alias support, `AS` or no-`AS`)
+- [x] `check()` / `expect()` / `parseError()` helpers
+- [x] `parseStatement()` dispatcher (SELECT, INSERT, UPDATE, DELETE, DROP;
+      CREATE/ALTER fail cleanly)
+- [x] `parseSelectStatement()` — full clause set: `DISTINCT`, projection
+      list, `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`
+- [x] `parseColumnList()` / `parseColumn(allow_alias)`
 - [x] `parseFromClause()` / `parseRelation()` — comma-separated
       relations, table aliases
 - [x] `parseJoinClause()` — `LEFT JOIN` / `RIGHT JOIN` / plain `JOIN`,
       multi-join chains, compound `AND`/`OR` conditions in `ON`
 - [x] `parseWhereClause()` / `parseOrExpr()` / `parseAndExpr()` /
-      `parseComparison()` / `parseOperand()` — correct `AND`/`OR`
-      precedence, verified with mixed-precedence queries, and shared
-      unmodified by `HAVING` and `ON`
+      `parseComparison()` / `parseOperand()` — accumulator loops, correct
+      `AND`/`OR` precedence and unlimited chains, shared by `HAVING` and `ON`
 - [x] `parseGroupByClause()`
 - [x] `parseHavingClause()` — with `GROUP BY`-required validation
-- [x] `parseOrderByClause()` / `parseOrderItem()` — `ASC`/`DESC`
-      (defaulting to `ASC`), column and positional ordering
+- [x] `parseOrderByClause()` / `parseOrderItem()`
 - [x] `parseLimitClause()`
-- [x] Column and table aliasing (`AS` and no-`AS` forms)
-- [x] Interactive REPL
-- [x] `parseInsertStatement()` / `parseValueTuple()` — explicit and
-      schema-implied (no column list) forms, multi-row `VALUES`
+- [x] Aliases (`AS` and no-`AS`), attached by callers; dotted aliases rejected
+- [x] Interactive multi-line REPL
+- [x] `parseInsertStatement()` / `parseValueTuple()` / `parseLiteral()`
 - [x] `parseProjectionList()` / `parseFunctionCall()` / `parseArgsList()`
-      / `parseArg()` — function calls in the `SELECT` list (`COUNT(*)`,
-      `SUM(x)`, with or without alias) and as comparison operands in
-      `WHERE`/`HAVING` (`HAVING SUM(salary) > 5000`)
-- [x] `SELECT *` — bare `*` and table-qualified `table.*`, both as a
-      `STAR` node (qualified form carries a `QUALIFIER` child); mixable
-      with ordinary columns in the same projection list
-- [x] Parenthesized expressions (`(a OR b) AND c`) in `WHERE`, `HAVING`
-      and `ON` — via `parsePrimary`; no node created for the parens
-- [x] Multi-line REPL (buffers until `;`)
-- [x] `parseDeleteStatement()` — `DELETE FROM relation [WHERE ...]`
-- [x] `parseDropStatement()` — `DROP TABLE name`, `DROP INDEX a, b ON t`,
-      both with optional `IF EXISTS`
-- [x] Postgres-style syntax error messages for `expect()` failures
-- [x] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
-      (`emp.id`) currently keep the qualifier folded into their
-      `.value` string rather than as a structural child; the binder
-      will need to re-split it when resolving joins
+      / `parseArg()`
+- [x] `SELECT *` and `table.*` as `STAR`; literals in the select list
+- [x] Qualified columns as `COLUMN` + `QUALIFIER` child
+      (`parseQualifier(allow_star)`)
+- [x] Parenthesized expressions
+- [x] `parseDeleteStatement()`, `parseUpdateStatement()` /
+      `parseAssignment()`
+- [x] `parseDropStatement()` / `parseIndex()` — `DROP TABLE`, `DROP INDEX
+      a, b ON t`, `IF EXISTS`
+- [x] All syntax errors through `parseError` (one `runtime_error` in the
+      parser)
+
 **Not yet done:**
-- [ ] `UPDATE` — design pending: `SET` token (enum *and* `keywordTable`),
-      `ASSIGNMENT` tag, `Clauses::SET`, `operand` on the right-hand side,
-      reject a dotted left-hand side
 - [ ] `CREATE TABLE` (largest: type keywords, constraints; unblocks the
       catalog), `CREATE INDEX`, `ALTER`, `DROP` of other objects
 - [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
-      `LIKE`, arithmetic; plain-`JOIN` forms beyond `(LEFT|RIGHT)? JOIN`
+      `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
+- [ ] Alias on a literal in the select list (`SELECT 1 AS one`)
+- [ ] Schema qualifier on relation names (open decision above)
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
-- [ ] Remaining old-format error messages (see **Syntax error messages**)
+- [ ] Restrict `DELETE` to a single relation (currently a `relation`
+      via `parseFromClause`)
+- [ ] `DROP IF` check on `IF` alone, then `expect(EXISTS)`, for a better message
 - [ ] Trailing-token check after the terminating `;`
 - [ ] Automated regression tests (currently REPL-verified by hand)
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
       (currently: caller runs `tokenize` then `parseStatement`
       separately, and exceptions propagate raw)
+- [ ] Semantic analysis (binder/catalog) — separate stage; its rules are
+      collected in the sections above (qualifier resolution, `EQUALS`
+      under `SET`, `TABLE` meaning under `DROP INDEX`, relation names)
 
 ---
 
@@ -1444,8 +1686,10 @@ Select
 │   └─> LEFT_JOIN
 │       ├─> TABLE: manager
 │       └─> EQUALS
-│           ├─> COLUMN: employee.id
-│           └─> COLUMN: manager.id
+│           ├─> COLUMN: id
+│           │   └─> QUALIFIER: employee
+│           └─> COLUMN: id
+│               └─> QUALIFIER: manager
 ├─> COLUMN: department
 ├─> COLUMN: salary
 ├─> WHERE
@@ -1475,8 +1719,10 @@ Select
 │       ├─> TABLE: manager
 │       │   └─> ALIAS: mang
 │       └─> EQUALS
-│           ├─> COLUMN: emp.id
-│           └─> COLUMN: mang.id
+│           ├─> COLUMN: id
+│           │   └─> QUALIFIER: emp
+│           └─> COLUMN: id
+│               └─> QUALIFIER: mang
 ├─> COLUMN: department
 ├─> COLUMN: salary
 ├─> WHERE
@@ -1504,8 +1750,10 @@ Select
 │   └─> LEFT_JOIN
 │       ├─> TABLE: departments
 │       └─> EQUALS
-│           ├─> COLUMN: employees.dept_id
-│           └─> COLUMN: departments.id
+│           ├─> COLUMN: dept_id
+│           │   └─> QUALIFIER: employees
+│           └─> COLUMN: id
+│               └─> QUALIFIER: departments
 ├─> COLUMN: department
 ├─> COLUMN: salary
 ├─> WHERE
@@ -1609,8 +1857,11 @@ Select
 **Verified end-to-end (Query 20 below) — alias-on-operand rejection:**
 ```
 SQL> SELECT department FROM employees GROUP BY department HAVING SUM(salary) AS s > 5000;
-Error: Expected a comparator at position 12
+Error: Syntax error: at or near "AS", <comparator expected>
 ```
+(Originally printed `Expected a comparator at position 12`. The error now
+goes through `parseError` and is reported at `"AS"`; re-run Query 20 to
+refresh the exact wording.)
 
 **Verified end-to-end (Query 21 below) — function calls in the projection list:**
 ```
@@ -1658,10 +1909,14 @@ Select
 │       ├─> TABLE: manager
 │       │   └─> ALIAS: mang
 │       └─> EQUALS
-│           ├─> COLUMN: emp.id
-│           └─> COLUMN: mang.id
-├─> COLUMN: emp.department
-├─> COLUMN: emp.salary
+│           ├─> COLUMN: id
+│           │   └─> QUALIFIER: emp
+│           └─> COLUMN: id
+│               └─> QUALIFIER: mang
+├─> COLUMN: department
+│   └─> QUALIFIER: emp
+├─> COLUMN: salary
+│   └─> QUALIFIER: emp
 └─> STAR
     └─> QUALIFIER: mang
 ```
@@ -1684,7 +1939,8 @@ Select
 │   └─> TABLE: employees
 │       └─> ALIAS: emp
 ├─> COLUMN: name
-└─> COLUMN: emp.dept
+└─> COLUMN: dept
+    └─> QUALIFIER: emp
 ```
 
 **Verified end-to-end (Query 26 below) — compound `AND` in `ON`:**
@@ -1699,13 +1955,19 @@ Select
 │       │   └─> ALIAS: mang
 │       └─> AND
 │           ├─> EQUALS
-│           │   ├─> COLUMN: emp.dept_id
-│           │   └─> COLUMN: mang.dept_id
+│           │   ├─> COLUMN: dept_id
+│           │   │   └─> QUALIFIER: emp
+│           │   └─> COLUMN: dept_id
+│           │       └─> QUALIFIER: mang
 │           └─> EQUALS
-│               ├─> COLUMN: emp.location
-│               └─> COLUMN: mang.location
-├─> COLUMN: emp.name
-└─> COLUMN: mang.name
+│               ├─> COLUMN: location
+│               │   └─> QUALIFIER: emp
+│               └─> COLUMN: location
+│                   └─> QUALIFIER: mang
+├─> COLUMN: name
+│   └─> QUALIFIER: emp
+└─> COLUMN: name
+    └─> QUALIFIER: mang
 ```
 
 **Verified end-to-end (Query 27 below) — mixed `OR`/`AND` in `ON`, same precedence as `WHERE`:**
@@ -1720,18 +1982,99 @@ Select
 │       │   └─> ALIAS: mang
 │       └─> OR
 │           ├─> EQUALS
-│           │   ├─> COLUMN: emp.id
-│           │   └─> COLUMN: mang.id
+│           │   ├─> COLUMN: id
+│           │   │   └─> QUALIFIER: emp
+│           │   └─> COLUMN: id
+│           │       └─> QUALIFIER: mang
 │           └─> AND
 │               ├─> EQUALS
-│               │   ├─> COLUMN: emp.backup_manager_id
-│               │   └─> COLUMN: mang.id
+│               │   ├─> COLUMN: backup_manager_id
+│               │   │   └─> QUALIFIER: emp
+│               │   └─> COLUMN: id
+│               │       └─> QUALIFIER: mang
 │               └─> EQUALS
-│                   ├─> COLUMN: emp.active
+│                   ├─> COLUMN: active
+│                   │   └─> QUALIFIER: emp
 │                   └─> LITERAL: 1
-├─> COLUMN: emp.name
-└─> COLUMN: mang.name
+├─> COLUMN: name
+│   └─> QUALIFIER: emp
+└─> COLUMN: name
+    └─> QUALIFIER: mang
 ```
+
+**Verified end-to-end (Query 38 below) — ORDER BY, identifier then position:**
+```
+SQL> SELECT a FROM t ORDER BY name, 2;
+Select
+├─> FROM
+│   └─> TABLE: t
+├─> COLUMN: a
+└─> ORDER BY
+    ├─> ORDER_ITEM
+    │   ├─> COLUMN: name
+    │   └─> ASC
+    └─> ORDER_ITEM
+        ├─> POSITION: 2
+        └─> ASC
+```
+
+**Verified end-to-end (Query 39 below) — INSERT, multi-row with explicit columns:**
+```
+SQL> INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
+Insert
+├─> TABLE: t
+├─> COLUMN: a
+├─> COLUMN: b
+├─> VALUE_TUPLE
+│   ├─> LITERAL: 1
+│   └─> LITERAL: x
+└─> VALUE_TUPLE
+    ├─> LITERAL: 2
+    └─> LITERAL: y
+```
+
+**Verified end-to-end (Query 40 below) — alias in the select list, aggregate with GROUP BY:**
+```
+SQL> SELECT a x FROM t;
+Select
+├─> FROM
+│   └─> TABLE: t
+└─> COLUMN: a
+    └─> ALIAS: x
+
+SQL> SELECT SUM(a) FROM t GROUP BY a;
+Select
+├─> FROM
+│   └─> TABLE: t
+├─> FUNCTION: SUM
+│   └─> ARG_LIST
+│       └─> COLUMN: a
+└─> GROUP BY
+    └─> COLUMN: a
+```
+
+**Verified end-to-end (Query 41 below) — error routing and alias/name rules:**
+```
+SQL> INSERT INTO t (a x) VALUES (1);
+Error: Syntax error: at or near "x", expected ')'
+SQL> INSERT INTO t (a AS x) VALUES (1);
+Error: Syntax error: at or near "AS", expected ')'
+SQL> SELECT a FROM t GROUP BY a x;
+Error: Syntax error: at or near "x", expected ';'
+SQL> SELECT a FROM t ORDER BY name, ;
+Error: Syntax error: at or near ";", expected column or position after ','
+SQL> DROP INDEX idx.name ON t;
+Error: Syntax error: at or near "idx.name", index name cannot contain '.'
+SQL> DROP INDEX emp.* ON t;
+Error: Syntax error: at or near "emp.*", index name cannot contain '.'
+SQL> DROP INDEX idx;
+Error: Syntax error: at or near ";", expected ON
+SQL> DROP INDEX ;
+Error: Syntax error: at or near ";", expected an identifier
+```
+(`DROP INDEX idx.name ON t` and `DROP INDEX emp.* ON t` above are the
+`parseIndex` checks; the `idx;` and `;` cases confirm the doubled prefix
+is gone.)
 
 Each query below is used as the target for one stage of the parser
 build-out, in increasing order of grammar coverage — from a bare
@@ -1807,7 +2150,7 @@ SELECT department FROM employees GROUP BY department HAVING SUM(salary) > 5000;
 
 -- Query 20 (alias-on-operand error case — must throw)
 SELECT department FROM employees GROUP BY department HAVING SUM(salary) AS s > 5000;
--- expected: "Expected a comparator at position 12"
+-- expected: error at "AS" (comparator expected)
 
 -- Query 21 (function calls in the projection list, combined with GROUP BY/HAVING/ORDER BY)
 SELECT department, COUNT(*), SUM(salary) FROM employees
@@ -1851,7 +2194,7 @@ DROP TABLE Employee;
 
 -- Query 33 (error cases — must throw)
 DROP TABLE Employee e;        -- at or near "e", expected ';'
-DROP Employee;                -- expected TABLE or INDEX after DROP, but found an identifier
+DROP Employee;                -- at or near "Employee", expected TABLE or INDEX
 DELETE employees WHERE id = 5; -- at or near "employees", expected FROM
 
 -- Query 34 (DROP INDEX, multiple indexes)
@@ -1870,7 +2213,42 @@ DROP INDEX ON EMPLOYEE;          -- at or near "ON", expected an identifier
 DROP INDEX EMP_ID ON EMPLOYEE e; -- at or near "e", expected ';'
 DROP TABLE IF t;                 -- at or near "IF", expected an identifier
 DROP TABLE IF EXISTS;            -- at or near ";", expected an identifier
-DROP;                            -- expected TABLE or INDEX after DROP, but found ';'
+DROP;                            -- at or near ";", expected TABLE or INDEX
+-- Query 38 (ORDER BY, identifier then position)
+SELECT a FROM t ORDER BY name, 2;
+
+-- Query 39 (INSERT, multi-row with explicit columns)
+INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
+
+-- Query 40 (select-list alias, aggregate + GROUP BY)
+SELECT a x FROM t;
+SELECT SUM(a) FROM t GROUP BY a;
+
+-- Query 41 (error routing — must throw, all "Syntax error: ...")
+INSERT INTO t (a x) VALUES (1);       -- at or near "x", expected ')'
+INSERT INTO t (a AS x) VALUES (1);    -- at or near "AS", expected ')'
+SELECT a FROM t GROUP BY a x;         -- at or near "x", expected ';'
+SELECT a FROM t ORDER BY name, ;      -- at or near ";", expected column or position after ','
+DROP INDEX idx.name ON t;             -- at or near "idx.name", index name cannot contain '.'
+DROP INDEX emp.* ON t;                -- at or near "emp.*", index name cannot contain '.'
+DROP INDEX idx;                       -- at or near ";", expected ON
+DROP INDEX ;                          -- at or near ";", expected an identifier
+INSERT INTO t VALUES (a);             -- at or near "a", expected a number or string
+INSERT INTO t VALUES (1, );           -- at or near ")", expected a number or string
+CREATE TABLE t (a);                   -- at or near "CREATE", CREATE is not supported yet
+SELECT a FROM employees e.salary;     -- at or near "e.salary", alias cannot contain '.'
+SELECT a FROM emp.*;                  -- at or near "emp.*", relation name cannot contain '*'
+DELETE FROM t WHERE id = 1 foo;       -- at or near "foo", expected ';'
+
+-- Query 42 (UPDATE — tree in the UPDATE section)
+UPDATE employees SET salary = 6000, dept = 'IT' WHERE id = 5;
+
+-- Query 43 (qualified column — tree in the qualifier section)
+SELECT emp.name FROM employees emp WHERE emp.id = 5;
+
+-- Query 44 (DISTINCT, literal in the select list)
+SELECT DISTINCT name FROM employees;
+SELECT name, 1 FROM employees;
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

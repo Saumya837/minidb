@@ -1,25 +1,19 @@
-refactor(parser): extract parseIndex, reject dotted index names
+docs(parser): readme v6 — UPDATE, qualifiers, alias rules, error routing
 
-DROP INDEX parsed names inline and accepted dotted/star lexemes, since
-the lexer folds '.' and '*' into IDENTIFIER-shaped tokens
-(DROP INDEX idx.name failed later at "expected ON" instead of at the name).
-Index names now go through parseIndex, which rejects them at the token.
+Update the parser design doc to match the code.
 
-Also fixes DROP errors carrying a doubled prefix
-("Syntax error: ..., Syntax error: ..."): an already-formatted message
-was being passed as the detail of another parseError.
+- Tag enums: Clauses gains DISTINCT and SET; ValueType gains INDEX
+- Qualified columns are now COLUMN + QUALIFIER child (reverses the v5
+  "qualifier only on STAR" decision); parseQualifier's contract rewritten,
+  all affected reference trees regenerated
+- New sections: UPDATE, DISTINCT, literals in the select list, alias rules
+  and the node-builder rule, AND/OR accumulator loops, relation names,
+  design lessons
+- Syntax error messages: single parseError helper, conventions, and the
+  full message table; one runtime_error in the parser
+- DROP: parseIndex, dotted/star name rejection, updated error list
+- INSERT: plain-identifier column list, parseLiteral errors
+- Grammar, dispatcher and status rewritten; reference queries 38-44 added
 
-Decision: DROP INDEX requires ON <table> (MySQL style), not bare
-DROP INDEX idx as in Postgres.
-
-Verified:
-  DROP INDEX IF EXISTS a, b ON t;
-  -> Drop / IF_EXISTS / INDEX_LIST (INDEX: a, INDEX: b) / TABLE: t
-  DROP INDEX idx.name ON t;
-  -> Syntax error: at or near "idx.name", index name cannot contain '.'
-  DROP INDEX emp.* ON t;
-  -> Syntax error: at or near "emp.*", index name cannot contain '.'
-  DROP INDEX idx;
-  -> Syntax error: at or near ";", expected ON
-  DROP INDEX ;
-  -> Syntax error: at or near ";", expected an identifier
+Open items recorded in the doc: alias on a literal, schema qualifier on
+relation names, Query 20 wording refresh.

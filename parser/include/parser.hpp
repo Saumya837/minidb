@@ -48,6 +48,8 @@ std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token>& tokens, si
 std::unique_ptr<ASTNode> parseOrderItem(const std::vector<Token>& tokens, size_t& pos);
 
 std::unique_ptr<ASTNode> parseLimitClause(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseStar(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseLiteral(const std::vector<Token>& tokens, size_t& pos);
 
 
 

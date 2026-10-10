@@ -2,7 +2,8 @@ fix(parser): finish routing parse errors through parseError
 
 Every syntax error now goes through the single parseError helper, so all
 messages share one shape: Syntax error: at or near "X", <detail>
-(or "unexpected end of input, <detail>").
+(or "unexpected end of input, <detail>"). The parser has exactly one
+runtime_error throw, inside parseError.
 
 Changed sites:
 - expectLiteral: "expected a number or string"
@@ -10,3 +11,22 @@ Changed sites:
 - parseStatement CREATE/ALTER stubs: "CREATE is not supported yet" / "ALTER is not supported yet"
 - expect(): end-of-input branch goes through parseError; syntaxErrorLocation is bounds-safe
 - parseAlias: error index was pos - 1, now pos, so the dotted alias is quoted
+
+Also:
+- parseColumn takes allow_alias; INSERT column lists and GROUP BY pass
+  false, so INSERT INTO t (a x) and GROUP BY a x are rejected
+- extract literal parsing into parseLiteral, shared by the select list,
+  comparisons, and INSERT VALUES
+
+Verified:
+  INSERT INTO t (a x) VALUES (1);
+  -> Syntax error: at or near "x", expected ')'
+  INSERT INTO t (a AS x) VALUES (1);
+  -> Syntax error: at or near "AS", expected ')'
+  SELECT a FROM t GROUP BY a x;
+  -> Syntax error: at or near "x", expected ';'
+  INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
+  -> two VALUE_TUPLE children
+  SELECT a x FROM t;
+  -> COLUMN: a with ALIAS: x
+  <paste the real outputs for VALUES (a), VALUES (1, ), CREATE, WHERE ;>

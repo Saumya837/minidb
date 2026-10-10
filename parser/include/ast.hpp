@@ -10,7 +10,7 @@ enum class StatementType {
 };
 
 enum class Clauses{
-    DISTINCT, FROM, IF_EXISTS, WHERE, GROUP_BY, ORDER_BY, HAVING, LIMIT
+    DISTINCT, FROM, IF_EXISTS, WHERE, GROUP_BY, ORDER_BY, HAVING, LIMIT, SET
 };
 
 enum class Relations{

@@ -983,6 +983,11 @@ literal          := NUMBER | STRING
 DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
 DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
                   | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
+
+UpdateStat       := UPDATE relation SET assignment_list where_clause? SEMICOLON
+assignment_list  := assignment (COMMA assignment)*
+assignment       := IDENTIFIER EQUALS operand
+
 index_list       := IDENTIFIER (COMMA IDENTIFIER)*
 
 SelectStat       := SELECT projection_list from_clause where_clause? group_by_clause?
@@ -1226,12 +1231,11 @@ while (true) {
 - [x] `parseDropStatement()` — `DROP TABLE name`, `DROP INDEX a, b ON t`,
       both with optional `IF EXISTS`
 - [x] Postgres-style syntax error messages for `expect()` failures
-
-**Not yet done:**
-- [ ] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
+- [x] `QUALIFIER` on plain `COLUMN` nodes — qualified columns
       (`emp.id`) currently keep the qualifier folded into their
       `.value` string rather than as a structural child; the binder
       will need to re-split it when resolving joins
+**Not yet done:**
 - [ ] `UPDATE` — design pending: `SET` token (enum *and* `keywordTable`),
       `ASSIGNMENT` tag, `Clauses::SET`, `operand` on the right-hand side,
       reject a dotted left-hand side

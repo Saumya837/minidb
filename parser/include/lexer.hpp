@@ -25,7 +25,7 @@ enum class TokenType {
     // JOIN
     LEFT, RIGHT, JOIN,
     
-    ON, AS, HAVING, LPAREN, RPAREN, STAR,
+    ON, AS, HAVING, LPAREN, RPAREN, STAR, SET, 
 
     IF, ELSE, EXISTS,
 
@@ -69,7 +69,8 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"HAVING", TokenType::HAVING},
     {"VALUES", TokenType::VALUES},
     {"IF",     TokenType::IF},
-    {"EXISTS", TokenType::EXISTS}
+    {"EXISTS", TokenType::EXISTS},
+    {"SET", TokenType::SET}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

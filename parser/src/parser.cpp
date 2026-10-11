@@ -45,6 +45,42 @@ namespace {
             case TokenType::STAR:           return "'*'";
             case TokenType::ASC:            return "ASC";
             case TokenType::DESC:           return "DESC";
+            
+            // already in the enum, currently missing
+            case TokenType::IF:             return "IF";
+            case TokenType::EXISTS:         return "EXISTS";
+            case TokenType::NOT:            return "NOT";
+            case TokenType::IS:             return "IS";
+            case TokenType::FUNCTION:       return "FUNCTION";
+            case TokenType::NULL_KW:        return "NULL";
+
+            // constraints
+            case TokenType::PRIMARY:        return "PRIMARY";
+            case TokenType::KEY:            return "KEY";
+            case TokenType::UNIQUE:         return "UNIQUE";
+            case TokenType::DEFAULT:        return "DEFAULT";
+            case TokenType::CONSTRAINT:     return "CONSTRAINT";
+            case TokenType::FOREIGN:        return "FOREIGN";
+            case TokenType::REFERENCES:     return "REFERENCES";
+            case TokenType::CHECK:          return "CHECK";
+            case TokenType::CASCADE:        return "CASCADE";
+            case TokenType::RESTRICT:       return "RESTRICT";
+            case TokenType::AUTO_INCREMENT: return "AUTO_INCREMENT";
+
+            // data types
+            case TokenType::INT:            return "INT";
+            case TokenType::INTEGER:        return "INTEGER";
+            case TokenType::BIGINT:         return "BIGINT";
+            case TokenType::SMALLINT:       return "SMALLINT";
+            case TokenType::FLOAT:          return "FLOAT";
+            case TokenType::DOUBLE:         return "DOUBLE";
+            case TokenType::DECIMAL:        return "DECIMAL";
+            case TokenType::CHAR:           return "CHAR";
+            case TokenType::VARCHAR:        return "VARCHAR";
+            case TokenType::TEXT:           return "TEXT";
+            case TokenType::BOOLEAN:        return "BOOLEAN";
+            case TokenType::DATE:           return "DATE";
+            case TokenType::TIMESTAMP:      return "TIMESTAMP";
             case TokenType::END_OF_INPUT:   return "end of input";
             case TokenType::UNKNOWN:        return "an unknown token";
             default:                        return "unknown token type";
@@ -111,6 +147,38 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     else {
         parseError(tokens, pos, "expected SELECT, INSERT, UPDATE, DELETE or DROP"); 
     }   
+}
+
+std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens, pos, TokenType::CREATE);
+    auto root = std::make_unique<ASTNode>();
+    root->type = StatementType::CREATE;
+
+    if(check(tokens, pos, TokenType::IF) && check(tokens, pos + 1, TokenType::NOT) && check(tokens, pos + 2, TokenType::EXISTS)){
+            expect(tokens, pos, TokenType::IF);
+            expect(tokens, pos, TokenType::NOT);
+            expect(tokens, pos, TokenType::EXISTS);
+            auto if_exists_node = std::make_unique<ASTNode>();
+            if_exists_node->type = Clauses::IF_EXISTS;
+            root->children.push_back(std::move(if_exists_node));
+        }
+
+    if(check(tokens, pos, TokenType::TABLE)){
+        expect(tokens, pos, TokenType::TABLE);
+        auto table = std::make_unique<ASTNode>();
+        table->type = Relations::TABLE;
+
+        auto relation = parseRelation(tokens, pos);
+        table->children.push_back(std::move(relation));
+        root->children.push_back(std::move(table));
+    }
+
+    //parsing value with its type
+
+
+
+    expect(tokens, pos, TokenType::SEMICOLON);
+    return root;
 }
 
 std::unique_ptr<ASTNode> parseAssignment(const std::vector<Token>& tokens, size_t& pos){
@@ -220,31 +288,15 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
     return root;
 }
 
-// std::unique_ptr<ASTNode> parseFunctionDef(const std::vector<Token>& tokens, size_t& pos, bool allow_parameter_name = true){
-    
-//     if(check(tokens, pos, TokenType::FUNCTION)){
-//         expect(tokens, pos, TokenType::FUNCTION);
-//         auto function = std::make_unique<ASTNode>();
-//         function->type = ValueType::FUNCTION;
-//         function->value = expect(tokens, pos, TokenType::IDENTIFIER).lexeme;
 
-//         expect(tokens, pos, TokenType::LPAREN);
-//         parseArgsList(tokens, pos);
-//         expect(tokens, pos, TokenType::RPAREN);
-
-//         if(allow_parameter_name && check(tokens, pos, TokenType::AS)){
-//             auto alias = parseAlias(tokens, pos);
-//             function->children.push_back(std::move(alias));
-//         }
-//     }
-//     return function;
-// }
 
 std::unique_ptr<ASTNode> parseIndex(const std::vector<Token> &tokens, size_t &pos){
     auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+
     if(idToken.lexeme.find('.') != std::string::npos){
         parseError(tokens, pos - 1, "index name cannot contain '.'");
     }
+
     auto index = std::make_unique<ASTNode>();
     index->type = ValueType::INDEX;
     index->value = idToken.lexeme;
@@ -272,7 +324,6 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::DROP;
 
-
     if(check(tokens, pos, TokenType::INDEX)){
         expect(tokens, pos, TokenType::INDEX);
 
@@ -288,13 +339,10 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
         root->children.push_back(std::move(index));
         expect(tokens, pos, TokenType::ON);
 
-        auto idToken2 = expect(tokens, pos, TokenType::IDENTIFIER);
-        auto relation = std::make_unique<ASTNode>();
-        relation->type = Relations::TABLE;
-        relation->value = idToken2.lexeme;
-
+        auto relation = parseRelation(tokens, pos);
         root->children.push_back(std::move(relation));
     } 
+
     else if(check(tokens, pos, TokenType::TABLE)){
         expect(tokens, pos, TokenType::TABLE);
 
@@ -306,10 +354,7 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
             root->children.push_back(std::move(if_exists_node));
         }
 
-        auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-        auto relation = std::make_unique<ASTNode>();
-        relation->type = Relations::TABLE;
-        relation->value = idToken.lexeme;
+        auto relation = parseRelation(tokens, pos);
         root->children.push_back(std::move(relation));
     }
     else {

@@ -11,23 +11,38 @@ enum class TokenType {
 
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
+
     // operators
     EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
+    
     // punctuation
     COMMA, SEMICOLON,
 
     //DDL keywords
     TABLE, INDEX, FUNCTION,
 
+     // data types
+    INT, INTEGER, BIGINT, SMALLINT,
+    FLOAT, DOUBLE, DECIMAL,
+    CHAR, VARCHAR, TEXT,
+    BOOLEAN, DATE, TIMESTAMP,
+
+    // constraint keywords
+    CONSTRAINT, FOREIGN, REFERENCES, CHECK,
+    CASCADE, RESTRICT, AUTO_INCREMENT, PRIMARY,
+    KEY, UNIQUE, DEFAULT,
+
     // ORDER keywords
-    ASC, DESC,
+    ASC, DESC, NOT,
 
     // JOIN
     LEFT, RIGHT, JOIN,
     
     ON, AS, HAVING, LPAREN, RPAREN, STAR, SET, 
 
-    IF, ELSE, EXISTS,
+    IF, ELSE, EXISTS, IS,
+    
+    NULL_KW, ISNULL, NOTNULL, 
 
     // control
     END_OF_INPUT, UNKNOWN,
@@ -69,8 +84,37 @@ const std::unordered_map<std::string, TokenType> keywordTable = {
     {"HAVING", TokenType::HAVING},
     {"VALUES", TokenType::VALUES},
     {"IF",     TokenType::IF},
-    {"EXISTS", TokenType::EXISTS},
-    {"SET", TokenType::SET}
+    {"NOT",    TokenType::NOT},
+    {"IS",     TokenType::IS},
+    {"NULL",   TokenType::NULL_KW},
+    {"NOTNULL", TokenType::NOTNULL},
+    {"ISNULL",        TokenType::ISNULL},
+    {"EXISTS",        TokenType::EXISTS},
+    {"SET",           TokenType::SET},
+    {"PRIMARY",       TokenType::PRIMARY},
+    {"KEY",           TokenType::KEY},
+    {"UNIQUE",        TokenType::UNIQUE},
+    {"DEFAULT",       TokenType::DEFAULT},
+    {"CONSTRAINT",    TokenType::CONSTRAINT},
+    {"FOREIGN",       TokenType::FOREIGN},
+    {"REFERENCES",    TokenType::REFERENCES},
+    {"CHECK",         TokenType::CHECK},
+    {"CASCADE",       TokenType::CASCADE},
+    {"RESTRICT",      TokenType::RESTRICT},
+    {"AUTO_INCREMENT", TokenType::AUTO_INCREMENT},
+    {"INT",       TokenType::INT},
+    {"INTEGER",   TokenType::INTEGER},
+    {"BIGINT",    TokenType::BIGINT},
+    {"SMALLINT",  TokenType::SMALLINT},
+    {"FLOAT",     TokenType::FLOAT},
+    {"DOUBLE",    TokenType::DOUBLE},
+    {"DECIMAL",   TokenType::DECIMAL},
+    {"CHAR",      TokenType::CHAR},
+    {"VARCHAR",   TokenType::VARCHAR},
+    {"TEXT",      TokenType::TEXT},
+    {"BOOLEAN",   TokenType::BOOLEAN},
+    {"DATE",      TokenType::DATE},
+    {"TIMESTAMP", TokenType::TIMESTAMP}
 };
 
 std::vector<Token> tokenize(const std::string& sql);

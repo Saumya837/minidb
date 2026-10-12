@@ -45,7 +45,6 @@ namespace {
             case TokenType::STAR:           return "'*'";
             case TokenType::ASC:            return "ASC";
             case TokenType::DESC:           return "DESC";
-            
             // already in the enum, currently missing
             case TokenType::IF:             return "IF";
             case TokenType::EXISTS:         return "EXISTS";
@@ -53,7 +52,6 @@ namespace {
             case TokenType::IS:             return "IS";
             case TokenType::FUNCTION:       return "FUNCTION";
             case TokenType::NULL_KW:        return "NULL";
-
             // constraints
             case TokenType::PRIMARY:        return "PRIMARY";
             case TokenType::KEY:            return "KEY";
@@ -66,7 +64,6 @@ namespace {
             case TokenType::CASCADE:        return "CASCADE";
             case TokenType::RESTRICT:       return "RESTRICT";
             case TokenType::AUTO_INCREMENT: return "AUTO_INCREMENT";
-
             // data types
             case TokenType::INT:            return "INT";
             case TokenType::INTEGER:        return "INTEGER";
@@ -87,6 +84,12 @@ namespace {
         }
     }
 
+
+    [[noreturn]] 
+    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
+        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
+    }
+
     std::string syntaxErrorLocation(const std::vector<Token>& tokens, size_t pos) {
         if (pos >= tokens.size() || tokens[pos].type == TokenType::END_OF_INPUT) {
             return "unexpected end of input";
@@ -97,11 +100,6 @@ namespace {
     bool check(const std::vector<Token>& tokens, size_t pos, TokenType type) {
         if (pos >= tokens.size()) return false;
         return tokens[pos].type == type;
-    }
-
-    [[noreturn]] 
-    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
-        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
     }
 
      Token expect(const std::vector<Token> &tokens, size_t& pos, TokenType type){
@@ -121,6 +119,7 @@ namespace {
         parseError(tokens, pos, "expected a number or string");
     }
 }
+
 
 std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t& pos){
     if(check(tokens, pos, TokenType::SELECT)){

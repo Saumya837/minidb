@@ -84,17 +84,16 @@ namespace {
         }
     }
 
-
-    [[noreturn]] 
-    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
-        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
-    }
-
     std::string syntaxErrorLocation(const std::vector<Token>& tokens, size_t pos) {
         if (pos >= tokens.size() || tokens[pos].type == TokenType::END_OF_INPUT) {
             return "unexpected end of input";
         }
         return "at or near \"" + tokens[pos].lexeme + "\"";
+    }
+
+    [[noreturn]] 
+    void parseError(const std::vector<Token>& tokens, size_t idx, const std::string& detail) {
+        throw std::runtime_error("Syntax error: " + syntaxErrorLocation(tokens, idx) + ", " + detail);
     }
 
     bool check(const std::vector<Token>& tokens, size_t pos, TokenType type) {

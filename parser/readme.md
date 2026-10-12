@@ -9,6 +9,24 @@ pipeline: **lexer → parser → AST**.
 SQL string  ──tokenize()──>  vector<Token>  ──parseStatement()──>  ASTNode tree
 ```
 
+**Flow, including error paths and what is still to come:**
+
+```mermaid
+flowchart LR
+    SQL["SQL string"] --> LEX["tokenize()<br/>lexer"]
+    LEX -->|"vector&lt;Token&gt;"| PARSE["parseStatement()<br/>dispatcher"]
+    LEX -. "lexical error" .-> ERR["std::runtime_error"]
+    PARSE -->|"SELECT / INSERT / UPDATE<br/>DELETE / DROP"| STMT["parseXStatement()<br/>recursive descent"]
+    PARSE -. "CREATE / ALTER / unknown" .-> PE["parseError()<br/>Syntax error: at or near ..."]
+    STMT -. "syntax error" .-> PE
+    PE --> ERR
+    STMT --> AST["ASTNode tree"]
+    AST --> PRINT["printAST()<br/>REPL view"]
+    AST --> DUMP["dumpTree()<br/>test view"]
+    AST -. "future" .-> BIND["binder / catalog<br/>semantic analysis"]
+    BIND -.-> EXEC["executor"]
+```
+
 Two independent stages:
 
 - **Lexer** (`tokenize`) — turns the raw SQL string into a flat sequence of
@@ -1067,6 +1085,39 @@ values yet, so changing the tree shape later costs more. If done: at most
 one dot (`db.schema.table` is a separate decision), and reuse the dot
 validation in `parseQualifier` rather than copying it.
 
+### `CREATE TABLE` (design — not implemented yet)
+
+Stage 1, the grammar the new keywords were added for:
+```
+CreateStat := CREATE TABLE (IF NOT EXISTS)? IDENTIFIER
+              LPAREN column_def (COMMA column_def)* RPAREN SEMICOLON
+column_def := IDENTIFIER type constraint*
+type       := TYPE_TOKEN (LPAREN NUMBER (COMMA NUMBER)? RPAREN)?
+constraint := PRIMARY KEY | NOT NULL | NULL | UNIQUE
+            | DEFAULT literal | AUTO_INCREMENT
+```
+```
+CREATE TABLE IF NOT EXISTS t (
+  id INT PRIMARY KEY,
+  name VARCHAR(50) NOT NULL,
+  price DECIMAL(10,2) DEFAULT 0
+);
+```
+Expected shape of the work:
+- **`Clauses::IF_NOT_EXISTS`**, a childless marker like `IF_EXISTS`: its
+  presence changes what the executor must do.
+- **A column-definition wrapper** (`InternalNode::COLUMN_DEF`) holding
+  the name, the type and a variable number of constraints, for the same
+  reason `ORDER_ITEM` exists: same-shaped siblings would otherwise
+  collide.
+- **A type node** carrying the name as written (`INT` vs `INTEGER` is
+  preserved) with the optional size/precision as children or value.
+- **Constraints as marker nodes** (`PRIMARY_KEY`, `NOT_NULL`, `UNIQUE`,
+  ...), `DEFAULT` carrying its literal.
+- **Stage 2:** table-level constraints (`CONSTRAINT name ...`,
+  `FOREIGN KEY ... REFERENCES ...`, `CHECK (cond)` reusing `or_expr`,
+  `ON DELETE CASCADE | RESTRICT | SET NULL`), then `CREATE INDEX`.
+
 ### Design lessons from this stage
 
 - **Single function, single job.** The three alias leaks, the doubled
@@ -1087,20 +1138,48 @@ validation in `parseQualifier` rather than copying it.
 
 ```cpp
 enum class TokenType {
-    // keywords
-    SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP,
-    FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, TABLE, JOIN,
-    HAVING, AS, ON, LEFT, RIGHT, INTO, VALUES,
+    // statement keywords
+    SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, DISTINCT,
+
+    // clause keywords
+    FROM, WHERE, GROUP, BY, ORDER, LIMIT, AND, OR, INTO, VALUES,
+    ON, AS, HAVING, SET,
+
     // identifiers & literals
     IDENTIFIER, NUMBER, STRING,
+
     // operators
     EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL,
+
     // punctuation
     COMMA, SEMICOLON, LPAREN, RPAREN, STAR,
+
+    // DDL keywords
+    TABLE, INDEX, FUNCTION,
+    IF, EXISTS,
+
+    // constraint keywords
+    PRIMARY, KEY, UNIQUE, DEFAULT,
+    CONSTRAINT, FOREIGN, REFERENCES, CHECK,
+    CASCADE, RESTRICT, AUTO_INCREMENT,
+
+    // data types
+    INT, INTEGER, BIGINT, SMALLINT,
+    FLOAT, DOUBLE, DECIMAL,
+    CHAR, VARCHAR, TEXT,
+    BOOLEAN, DATE, TIMESTAMP,
+
+    // ORDER BY keywords
+    ASC, DESC,
+
+    // JOIN keywords
+    LEFT, RIGHT, JOIN,
+
+    // expression keywords
+    NOT, IS, NULL_KW,
+
     // control
     END_OF_INPUT, UNKNOWN,
-    // ordering
-    ASC, DESC,
 };
 
 struct Token {
@@ -1123,6 +1202,47 @@ only as comments or on-demand helper functions if ever needed.
 scans one word at a time and has no multi-word lookahead, so `GROUP BY`
 arrives as two tokens. The *parser* is responsible for expecting them
 back-to-back as one clause.
+
+**Keywords added for `CREATE TABLE` (v7).** Three groups, entered in
+all three places at once (`TokenType`, `keywordTable`,
+`tokenTypeToString`):
+- **Constraints:** `PRIMARY`, `KEY`, `UNIQUE`, `DEFAULT`, `CONSTRAINT`,
+  `FOREIGN`, `REFERENCES`, `CHECK`, `CASCADE`, `RESTRICT`,
+  `AUTO_INCREMENT` (MySQL-style, consistent with `DROP INDEX ... ON`).
+  `NOT`, `NULL_KW`, `IF` and `EXISTS` already served `NOT NULL` and
+  `IF NOT EXISTS`; `ON`, `DELETE`, `UPDATE`, `SET` cover
+  `ON DELETE SET NULL`.
+- **Data types, as reserved words:** `INT`, `INTEGER`, `BIGINT`,
+  `SMALLINT`, `FLOAT`, `DOUBLE`, `DECIMAL`, `CHAR`, `VARCHAR`, `TEXT`,
+  `BOOLEAN`, `DATE`, `TIMESTAMP`. The alternative (lexing type names as
+  `IDENTIFIER` and letting the binder validate them against the catalog,
+  as Postgres does) was considered and not chosen: a flat enum matches
+  the rest of the lexer and lets the parser reject an unknown type at
+  syntax time. **The cost:** every one of these is now reserved, so a
+  column named `date`, `text`, `key` or `check` no longer parses as an
+  identifier. If that starts to hurt, add a `parseColumnName` that also
+  accepts non-reserved keywords. The parser should ask "is this any data
+  type?" through a small `isTypeToken(TokenType)` switch, not 13 inline
+  comparisons — the "on-demand helper" the flat-enum decision allows.
+  `INT` and `INTEGER` stay separate tokens; mapping them to one type is
+  the binder's job.
+- **Cleanup in the same change:** `__NULL` became `NULL_KW` (identifiers
+  containing a double underscore are reserved in C++, and `NULL` is a
+  macro). `ISNULL` and `NOTNULL` were removed: `IS NULL` / `IS NOT NULL`
+  are the token sequences `IS`, `NULL_KW` / `IS`, `NOT`, `NULL_KW`,
+  handled by the parser. `ELSE` was removed until `CASE` exists — a
+  keyword is reserved the moment it is added, so add it when a grammar
+  rule uses it.
+
+**Three places per keyword, one safety net.** A new keyword needs an
+enum entry, a `keywordTable` entry (spelling must match the uppercased
+lexeme; the `AUTO_INCREMENT` key contains an underscore, and `NULL_KW`'s
+key is `"NULL"`) and a `tokenTypeToString` case (`NULL_KW` prints as
+`NULL`). Missing any one gave the `SET`, `RIGHT` and `INTO` bugs.
+`tokenTypeToString` no longer has a `default:` branch, so `-Wswitch`
+flags an enumerator it forgot at compile time (keep `-Wall -Wextra` on).
+The planned lexer test — tokenize every keyword spelling and check none
+comes back as `IDENTIFIER` — catches a missing `keywordTable` entry.
 
 **Operators are not in the keyword table.** `>`, `<`, `>=`, `<=`, `=`
 are matched by character in the tokenizer's own branches, not via
@@ -1290,6 +1410,50 @@ SQL — you can't group rows by an aggregate result computed from those
 same rows. So only the `SELECT` list needed the ability to hold a
 function call; `column_list` deliberately kept its original, narrower
 shape (`column` only) rather than being widened to match.
+
+### Control flow
+
+**`SELECT`, clause by clause.** Every optional clause is entered by peeking at its opening keyword; once committed, the specialist parser throws its own precise error.
+
+```mermaid
+flowchart TD
+    A["parseSelectStatement"] --> B["expect SELECT"]
+    B --> C{"DISTINCT?"}
+    C -->|yes| D["DISTINCT marker node"]
+    C -->|no| E
+    D --> E["parseProjectionList<br/>STAR / qualified star / function / literal / column"]
+    E --> F["parseFromClause<br/>relations + joins"]
+    F --> G{"WHERE?"}
+    G -->|yes| G1["parseWhereClause"]
+    G -->|no| H
+    G1 --> H{"GROUP BY?"}
+    H -->|yes| H1["parseGroupByClause"]
+    H -->|no| I
+    H1 --> I{"HAVING?"}
+    I -->|"yes, needs GROUP BY"| I1["parseHavingClause"]
+    I -->|no| J
+    I1 --> J{"ORDER BY?"}
+    J -->|yes| J1["parseOrderByClause"]
+    J -->|no| K
+    J1 --> K{"LIMIT?"}
+    K -->|yes| K1["parseLimitClause"]
+    K -->|no| L
+    K1 --> L["expect SEMICOLON"]
+    L --> M["Select node"]
+```
+
+**Conditions** (`WHERE`, `HAVING`, `ON`) share one layered chain, which is what gives `AND` higher precedence than `OR` and allows parentheses:
+
+```mermaid
+flowchart TD
+    W["WHERE / HAVING / ON"] --> OR["parseOrExpr<br/>left = and_expr; while OR"]
+    OR --> AND["parseAndExpr<br/>left = primary; while AND"]
+    AND --> PRI{"parsePrimary"}
+    PRI -->|"LPAREN"| PAREN["expect (  →  parseOrExpr  →  expect )"]
+    PAREN -.-> OR
+    PRI -->|otherwise| CMP["parseComparison<br/>operand comparator operand"]
+    CMP --> OPD["parseOperand<br/>function call / column / literal"]
+```
 
 ### Grammar → code translation pattern
 
@@ -1472,10 +1636,21 @@ while (true) {
       a, b ON t`, `IF EXISTS`
 - [x] All syntax errors through `parseError` (one `runtime_error` in the
       parser)
+- [x] Keywords for `CREATE TABLE`: constraint words and data types in
+      `TokenType` (`NULL_KW`, no `ISNULL`/`NOTNULL`/`ELSE`)
+- [~] Automated regression suite — scaffold committed (`tree_dump`,
+      `case_loader`, `failure_log` stubs); runner, cases and CMake
+      target still to do (see **Automated tests**)
 
 **Not yet done:**
-- [ ] `CREATE TABLE` (largest: type keywords, constraints; unblocks the
-      catalog), `CREATE INDEX`, `ALTER`, `DROP` of other objects
+- [ ] `CREATE TABLE` — keywords are in; grammar, `IF_NOT_EXISTS`,
+      column-definition wrapper and type/constraint nodes to build
+      (see **`CREATE TABLE`** design). Then `CREATE INDEX`, `ALTER`,
+      `DROP` of other objects
+- [ ] Finish the keyword mappers for the new words (`keywordTable`,
+      `tokenTypeToString`) and the keyword-coverage lexer test
+- [ ] Settle node label naming before writing many test cases
+- [ ] `isTypeToken` helper
 - [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
@@ -1488,13 +1663,162 @@ while (true) {
       via `parseFromClause`)
 - [ ] `DROP IF` check on `IF` alone, then `expect(EXISTS)`, for a better message
 - [ ] Trailing-token check after the terminating `;`
-- [ ] Automated regression tests (currently REPL-verified by hand)
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
       (currently: caller runs `tokenize` then `parseStatement`
       separately, and exceptions propagate raw)
 - [ ] Semantic analysis (binder/catalog) — separate stage; its rules are
       collected in the sections above (qualifier resolution, `EQUALS`
       under `SET`, `TABLE` meaning under `DROP INDEX`, relation names)
+
+---
+
+## Automated tests
+
+Until now every query was checked by hand in the REPL. The regression
+suite replaces that: a file of cases, each a query with its expected
+result, run in one command, with failures logged instead of stopping the
+run. **Status: scaffold committed, behavior in progress.**
+
+### Design (from first principles)
+
+1. A case file holds queries and their expected results.
+2. A function reads one case, runs `tokenize` then `parseStatement`,
+   and compares the result with the expectation.
+3. A **tree case** passes if the produced tree equals the expected one;
+   an **error case** passes if the parser throws exactly the expected
+   message.
+4. A failure does not stop the run: it is recorded with the case number
+   and the reason, the run continues, and the exit code is non-zero if
+   anything failed.
+
+**The run, end to end:**
+
+```mermaid
+flowchart TD
+    CF["tests.txt<br/>### name · SQL · expect / error"] --> LD["case_loader<br/>file → vector&lt;TestCase&gt;"]
+    LD --> LOOP{"next case?"}
+    LOOP -->|yes| RUN["case_runner<br/>tokenize → parseStatement"]
+    RUN -->|parsed| DUMP["dumpTree → lines"]
+    RUN -->|"threw runtime_error"| MSG["error message"]
+    DUMP --> CMP{"compare line by line<br/>with expectation"}
+    MSG --> CMP
+    CMP -->|match| PASS["PASS"]
+    CMP -->|differs| FAIL["FAIL + reason<br/>first differing line"]
+    PASS --> LOOP
+    FAIL --> FL["failure_log<br/>failures_&lt;ts&gt;.log"]
+    FL --> LOOP
+    LOOP -->|no| SUM["summary + test_statistics.log line"]
+    SUM --> EXIT["exit code 0 / non-zero"]
+```
+
+**Comparison is line by line.** A tree serialised in pre-order, one node
+per line with depth shown by indentation, is the traversal. Comparing
+the two in lock step is comparing node by node, and the first differing
+line number is the failing node. This avoids parsing an expected tree
+back out of ASCII art, which would need a second parser (a test oracle
+with bugs of its own). "Concurrently" means lock-step, not threads.
+
+**`printAST` is untouched.** It stays the human-readable REPL view. The
+tests use their own function, `dumpTree`, which returns the tree as lines
+using the shared `tagToString` and the same `label: value` rule, with two
+spaces of indentation per depth and no box-drawing characters (no
+multi-byte UTF-8 to type or compare):
+```
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+```
+
+**One case file per group, not two paired files.** Queries and results
+in separate files pair by position, so inserting one query shifts every
+later case and the log reports the wrong one; it also cannot hold a
+query with no `;`. A block keeps each query next to its answer:
+```
+### drop_index_dotted
+DROP INDEX idx.name ON t;
+--- error
+Syntax error: at or near "idx.name", index name cannot contain '.'
+
+### select_basic
+SELECT name FROM employees;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+```
+Cases run the parser directly, not through the REPL, so they can cover
+what the REPL cannot — e.g. `SELECT a FROM t` with no `;` →
+`Syntax error: unexpected end of input, expected ';'`.
+
+**Failure reasons recorded**
+
+| Case | Reason written |
+|---|---|
+| Tree differs | first differing line, expected vs actual |
+| Different length | `expected N nodes, got M` |
+| Expected a tree, parser threw | `unexpected error: <message>` |
+| Expected an error, parse succeeded | `expected error "<msg>", but parsed OK` + the tree |
+| Error message differs | expected vs actual message |
+
+### Files
+
+```
+tests/parser_test/
+├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
+├── test_script.cpp        entry point: find case files, loop, summary, exit code
+├── tests.txt              cases
+├── harness/
+│   ├── tree_dump.hpp/.cpp     node -> vector<string>
+│   ├── case_loader.hpp/.cpp   cases file -> vector<TestCase>
+│   └── failure_log.hpp/.cpp   results -> log file
+└── logs/
+    ├── test_statistics.log    tracked: one appended line per full run
+    └── failures_<timestamp>.log   generated per run, ignored by git
+```
+Planned: `case_runner` (one case → pass/fail + reason, with the line
+comparison as its own function) and a statistics writer.
+Shared structs: `TestCase { number, name, sql, kind, expected }` and
+`CaseResult { testCase, passed, reason, actual }`.
+
+### Logs
+
+- **Failure log:** created by the run, never by hand; the file is
+  opened lazily on the first failure, so a green run leaves none.
+  The directory is created if missing. Case number plus name identify a
+  case (numbers shift when cases are inserted).
+- **`test_statistics.log`:** `timestamp | total | passed | failed |
+  duration_ms`, appended only for a *full* run (a partial run would add
+  a misleading line). **Tracked in git** for a visible pass-count
+  history; the cost is that it shows as modified after every run, so it
+  is committed with the day's work. `.gitignore` ignores
+  `tests/parser_test/logs/failures_*.log`, not the whole folder.
+- **Paths** are built from a `TEST_DIR` compile definition set in CMake,
+  so the suite runs from any working directory (`ctest` runs from the
+  build directory).
+- No CI server: `ctest --test-dir build --output-on-failure`, a
+  one-line script, and optionally a local pre-push hook are enough for
+  one person on one machine.
+
+### Open decision: node labels
+
+The labels in `tagToString` are part of every expected tree, so settle
+them before writing many cases: `GREATER_EQUAL` prints as
+`GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
+LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
+clause labels use spaces (`GROUP BY`) while others use underscores
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case.
+
+### Build order
+
+1. `tree_dump` (checked against one query).
+2. `case_loader` on a file of two cases.
+3. `case_runner` — comparison first, then the parser call.
+4. `failure_log`, then break a case on purpose to see a readable entry.
+5. `test_script.cpp` + CMake target + `add_test`.
+6. Move the reference queries in, grouped by statement, reviewing each
+   expected tree against this document.
 
 ---
 

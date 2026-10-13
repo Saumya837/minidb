@@ -62,6 +62,11 @@ add_library(minidb_parser STATIC
     parser/src/printer.cpp
 )
 
+add_library(minidb_test_harness STATIC
+    tests/parser_test/harness/tree_dump.cpp
+    # case_loader.cpp, failure_log.cpp, case_runner.cpp added as they are written
+)
+
 # ---- parser tests (no Postgres needed) ----------------------------------
 add_executable(ast_test       tests/parser_test/ast_test.cpp)
 add_executable(tokenizer_test tests/parser_test/lexer_test.cpp)
@@ -71,7 +76,12 @@ target_link_libraries(ast_test       minidb_parser)
 target_link_libraries(tokenizer_test minidb_parser)
 target_link_libraries(parse_test     minidb_parser)
 
-# run_tests (regression suite) is added here once the harness is written
+target_include_directories(minidb_test_harness PUBLIC tests/parser_test/harness)
+target_link_libraries(minidb_test_harness PUBLIC minidb_parser)
+
+add_executable(tree_dump_test tests/parser_test/tree_dump_test.cpp)
+target_link_libraries(tree_dump_test minidb_test_harness)
+
 
 # ---- targets that need libpq --------------------------------------------
 if(HAVE_PG)

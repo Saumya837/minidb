@@ -14,6 +14,7 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
 std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseUpdateStatement(const std::vector<Token>& tokens, size_t& pos);
 
+
 std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t& pos, bool allow_star = true);
 std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Token>& tokens, size_t& pos);

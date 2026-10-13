@@ -172,9 +172,6 @@ std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, 
     }
 
     //parsing value with its type
-
-
-
     expect(tokens, pos, TokenType::SEMICOLON);
     return root;
 }
@@ -1032,4 +1029,8 @@ std::unique_ptr<ASTNode> parseOrderByClause(const std::vector<Token> &tokens, si
     }
     return orderby;
 }
+
+
+
+
 

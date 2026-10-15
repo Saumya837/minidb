@@ -5,19 +5,45 @@
 #include <string>
 #include <vector>
 
+#include <algorithm>
+#include <cctype>
+
 namespace {
 
-// 1. Remove a trailing '\r' (Windows line endings), nothing else.
-std::string stripCR(const std::string& line);
+    bool isBlank(const std::string& line){
+        return std::all_of(line.begin(), line.end(), [] (unsigned char c) { return std::isspace(c); });
+    }
 
-// 2. Join lines with "\n", dropping blank lines at the END only.
-//    Blank lines in the middle, and every line's leading spaces, stay.
-std::string joinTrimmed(const std::vector<std::string>& lines);
+    // 1. Remove a trailing '\r' (Windows line endings), nothing else.
+    std::string stripCR(const std::string& line){
+        if(!(line.empty()) && ((line.back() == '\r'))){
+            return line.substr(0, line.size() - 1);
+        }
+        return line;
+    }
 
-// 3. Does the line start with "### "?  Return the name after it.
-bool isCaseStart(const std::string& line, std::string& nameOut);
+    // 2. Join lines with "\n", dropping blank lines at the END only.
+    //    Blank lines in the middle, and every line's leading spaces, stay.
+    std::string joinTrimmed(const std::vector<std::string>& lines){
+        size_t end = lines.size();
 
-}  // namespace
+        while((end > 0) && isBlank(lines[end - 1])){
+            end--;
+        }
+
+        std::string result  = "";
+        for(size_t i = 0; i < end; ++i){
+           if(i > 0) result += '\n';
+           result += lines[i];
+        }
+        return result;
+    }
+
+    // 3. Does the line start with "### "?  Return the name after it.
+    bool isCaseStart(const std::string& line, std::string& nameOut){
+    }
+}
+
 
 std::vector<TestCase> loadCases(const std::string& path) {
     // open the file; throw std::runtime_error if it fails to open

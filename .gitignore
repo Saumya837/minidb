@@ -5,4 +5,4 @@ Makefile
 cmake_install.cmake
 *.o
 commitmsg.txt
-tests/logs/failures_*.log
+tests/parser_test/logs/failures_*.log

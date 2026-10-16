@@ -7,12 +7,22 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+
 
 namespace {
 
     bool isBlank(const std::string& line){
         return std::all_of(line.begin(), line.end(), [] (unsigned char c) { return std::isspace(c); });
     }
+
+    std::string trimEnds(std::string in_string){
+        size_t first = in_string.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) return "";
+        size_t last = in_string.find_last_not_of(" \t\r\n");
+        return in_string.substr(first, last - first + 1);
+    }
+ 
 
     // 1. Remove a trailing '\r' (Windows line endings), nothing else.
     std::string stripCR(const std::string& line){
@@ -41,28 +51,82 @@ namespace {
 
     // 3. Does the line start with "### "?  Return the name after it.
     bool isCaseStart(const std::string& line, std::string& nameOut){
+        if(line.rfind("### ", 0) == 0){
+            nameOut = line.substr(4);
+            nameOut = trimEnds(nameOut);
+            return true;
+        }
+        return false;
     }
+
+    enum class State { Outside, Sql, Expected };
 }
 
 
 std::vector<TestCase> loadCases(const std::string& path) {
-    // open the file; throw std::runtime_error if it fails to open
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        throw std::runtime_error("cannot open case file: " + path);
+    }
 
-    // state while reading: which section are we in?
-    //   Outside (before the first ###)  |  Sql  |  Expected
-    // plus the pieces of the case being built:
-    //   name, sqlLines, expectedLines, kind
+    std::vector<TestCase> cases;
 
-    // for each line (after stripCR):
-    //   - "### name"           -> finish the previous case (if any), start a new one
-    //   - "--- expect"/"--- error" (only while in Sql) -> set kind, switch to Expected
-    //   - anything else        -> append to sqlLines or expectedLines by state,
-    //                             or ignore it while Outside
+    State state = State::Outside;
+    bool haveCase = false;    // a "###" has been seen
+    bool sawMarker = false;   // "--- expect" / "--- error" seen for this case
+    std::string name;
+    std::vector<std::string> sqlLines, expectedLines;
+    CaseKind kind = CaseKind::Tree;
 
-    // after the loop: finish the last case
+    // Close the case being built: validate it, then push it.
+    auto finishCase = [&]() {
+        if (!haveCase) return;
+        if (name.empty()) {
+            throw std::runtime_error(path + ": case #" +
+                std::to_string(cases.size() + 1) + " has an empty name");
+        }
+        if (!sawMarker) {
+            throw std::runtime_error(path + ": case '" + name +
+                "' has no '--- expect' or '--- error' marker");
+        }
+        TestCase c;
+        c.number = static_cast<int>(cases.size()) + 1;
+        c.name = name;
+        c.sql = joinTrimmed(sqlLines);
+        c.kind = kind;
+        c.expected = joinTrimmed(expectedLines);
+        if (c.sql.empty()) {
+            throw std::runtime_error(path + ": case '" + name + "' has no SQL");
+        }
+        cases.push_back(std::move(c));
+    };
 
-    // "finish a case": a case that never saw a marker is an error -> throw
-    //   (name it in the message so you know which one is broken);
-    //   otherwise sql = joinTrimmed(sqlLines), expected = joinTrimmed(expectedLines),
-    //   number = cases.size() + 1, push it
+    std::string line;
+    while (std::getline(in, line)) {
+        line = stripCR(line);
+
+        std::string newName;
+        if (isCaseStart(line, newName)) {
+            finishCase();          // closes the PREVIOUS case, still under its own name
+            name = newName;
+            sqlLines.clear();
+            expectedLines.clear();
+            sawMarker = false;
+            haveCase = true;
+            state = State::Sql;
+        } else if (state == State::Sql &&
+                   (line == "--- expect" || line == "--- error")) {
+            kind = (line == "--- expect") ? CaseKind::Tree : CaseKind::Error;
+            sawMarker = true;
+            state = State::Expected;
+        } else if (state == State::Sql) {
+            sqlLines.push_back(line);
+        } else if (state == State::Expected) {
+            expectedLines.push_back(line);
+        }
+        // State::Outside: text before the first "###" is ignored (comments).
+    }
+    finishCase();
+
+    return cases;
 }

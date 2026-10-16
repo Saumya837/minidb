@@ -9,6 +9,5 @@ int main() {
     auto root = parseStatement(tokens, pos);
     for (const auto& line : dumpTree(*root))
         std::cout << "|" << line << "\n";
-
     return 0;
 }

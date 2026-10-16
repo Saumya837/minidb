@@ -577,7 +577,7 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
         projList.push_back(std::move(literalNode));
     }
     else{
-        parseError(tokens, pos, "expected a value (column, literal or function call) " + std::to_string(pos));
+        parseError(tokens, pos, "expected a value (column, literal or function call) ");
     }
 
     while(check(tokens, pos, TokenType::COMMA)){

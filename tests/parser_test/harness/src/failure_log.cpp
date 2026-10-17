@@ -5,14 +5,12 @@
 #include <stdexcept>
 
 namespace {
-
-std::string timestamp(const char* format) {
-    std::time_t now = std::time(nullptr);
-    char buf[64];
-    std::strftime(buf, sizeof(buf), format, std::localtime(&now));
-    return buf;
-}
-
+    std::string timestamp(const char* format) {
+        std::time_t now = std::time(nullptr);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), format, std::localtime(&now));
+        return buf;
+    }
 }  // namespace
 
 FailureLog::FailureLog(std::string dir, std::string caseFile)
@@ -41,5 +39,6 @@ void FailureLog::record(const CaseResult& r) {
          << "--- expected" << (r.testCase.kind == CaseKind::Error ? " (error)" : " (tree)") << "\n"
          << r.testCase.expected << "\n"
          << "--- actual\n" << r.actual << "\n\n";
+         
     out_.flush();
 }

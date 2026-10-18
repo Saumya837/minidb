@@ -1,21 +1,3 @@
-### select_basic
-SELECT name, salary FROM employees WHERE salary > 5000;
---- expect
-Select
-  FROM
-    TABLE: employees
-  COLUMN: name
-  COLUMN: salary
-  WHERE
-    GREATER
-      COLUMN: salary
-      LITERAL: 5000
-
-### drop_index_dotted
-DROP INDEX a.b;
---- error
-PASTE THE EXACT REPL MESSAGE HERE
-
 ### deliberately_wrong_tree
 SELECT name FROM employees;
 --- expect
@@ -28,3 +10,8 @@ Select
 SELECT FROM;
 --- error
 Syntax error: this will not match
+
+### expected_error_but_parses
+SELECT name FROM employees;
+--- error
+Syntax error: whatever

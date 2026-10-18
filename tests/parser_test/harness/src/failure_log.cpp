@@ -3,6 +3,7 @@
 #include <ctime>
 #include <filesystem>
 #include <stdexcept>
+#include "time_util.hpp"
 
 namespace {
     std::string timestamp(const char* format) {
@@ -39,6 +40,6 @@ void FailureLog::record(const CaseResult& r) {
          << "--- expected" << (r.testCase.kind == CaseKind::Error ? " (error)" : " (tree)") << "\n"
          << r.testCase.expected << "\n"
          << "--- actual\n" << r.actual << "\n\n";
-         
+
     out_.flush();
 }

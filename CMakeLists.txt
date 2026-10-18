@@ -66,6 +66,8 @@ add_library(minidb_test_harness STATIC
     tests/parser_test/harness/src/tree_dump.cpp
     tests/parser_test/harness/src/case_loader.cpp
     tests/parser_test/harness/src/case_runner.cpp
+    tests/parser_test/harness/src/failure_log.cpp
+    tests/parser_test/harness/src/statistics.cpp
 )
 
 

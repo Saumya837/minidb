@@ -1,17 +1,720 @@
-### deliberately_wrong_tree
-SELECT name FROM employees;
+### q01_basic
+SELECT name, salary FROM employees;
 --- expect
 Select
   FROM
     TABLE: employees
+  COLUMN: name
   COLUMN: salary
 
-### deliberately_wrong_error
-SELECT FROM;
---- error
-Syntax error: this will not match
+### q02_where
+SELECT name, salary FROM employees WHERE salary > 5000;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+  COLUMN: salary
+  WHERE
+    GREATER
+      COLUMN: salary
+      LITERAL: 5000
 
-### expected_error_but_parses
-SELECT name FROM employees;
+### q03_multi_condition_where_and
+SELECT name, salary FROM employees WHERE age >= 30 AND department = 'IT';
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+  COLUMN: salary
+  WHERE
+    AND
+      GREATER EQUAL
+        COLUMN: age
+        LITERAL: 30
+      EQUALS
+        COLUMN: department
+        LITERAL: IT
+
+### q04_multi_condition_where_or
+SELECT name, salary FROM employees WHERE salary < 3000 OR salary >= 10000;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+  COLUMN: salary
+  WHERE
+    OR
+      SMALLER
+        COLUMN: salary
+        LITERAL: 3000
+      GREATER EQUAL
+        COLUMN: salary
+        LITERAL: 10000
+
+### q05_group_by
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+
+### q06_group_by_multi_column
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+
+### q07_limit
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary LIMIT 10;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  LIMIT
+    LITERAL: 10
+
+### q08_order_by_desc
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary DESC, department DESC LIMIT 10;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: salary
+      DESC
+    ORDER_ITEM
+      COLUMN: department
+      DESC
+  LIMIT
+    LITERAL: 10
+
+### q09_order_by_bydefault_asc
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary, department LIMIT 10;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: salary
+      ASC
+    ORDER_ITEM
+      COLUMN: department
+      ASC
+  LIMIT
+    LITERAL: 10
+
+### q10_order_by_mixed_order
+SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: salary
+      ASC
+    ORDER_ITEM
+      COLUMN: department
+      DESC
+  LIMIT
+    LITERAL: 100
+
+### q11_join
+SELECT department, salary FROM employees LEFT JOIN manager ON employee.id = manager.id WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+--- expect
+Select
+  FROM
+    TABLE: employees
+    LEFT_JOIN
+      TABLE: manager
+      EQUALS
+        COLUMN: id
+          QUALIFIER: employee
+        COLUMN: id
+          QUALIFIER: manager
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: salary
+      ASC
+    ORDER_ITEM
+      COLUMN: department
+      DESC
+  LIMIT
+    LITERAL: 100
+
+### q12_join_alias
+SELECT department, salary FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+    LEFT_JOIN
+      TABLE: manager
+        ALIAS: mang
+      EQUALS
+        COLUMN: id
+          QUALIFIER: emp
+        COLUMN: id
+          QUALIFIER: mang
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    GREATER EQUAL
+      COLUMN: salary
+      LITERAL: 5000
+  GROUP BY
+    COLUMN: department
+    COLUMN: salary
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: salary
+      ASC
+    ORDER_ITEM
+      COLUMN: department
+      DESC
+  LIMIT
+    LITERAL: 100
+
+### q13_decimal_literals_join_qualified
+SELECT department, salary FROM employees LEFT JOIN departments ON employees.dept_id = departments.id WHERE salary < 3000.50 OR salary >= 10000.40 LIMIT 10;
+--- expect
+Select
+  FROM
+    TABLE: employees
+    LEFT_JOIN
+      TABLE: departments
+      EQUALS
+        COLUMN: dept_id
+          QUALIFIER: employees
+        COLUMN: id
+          QUALIFIER: departments
+  COLUMN: department
+  COLUMN: salary
+  WHERE
+    OR
+      SMALLER
+        COLUMN: salary
+        LITERAL: 3000.50
+      GREATER EQUAL
+        COLUMN: salary
+        LITERAL: 10000.40
+  LIMIT
+    LITERAL: 10
+
+### q14_having
+SELECT department, salary FROM employees GROUP BY department HAVING salary > 5000;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  COLUMN: salary
+  GROUP BY
+    COLUMN: department
+  HAVING
+    GREATER
+      COLUMN: salary
+      LITERAL: 5000
+
+### q15_having_error_case
+SELECT department, salary FROM employees HAVING salary > 5000;
 --- error
-Syntax error: whatever
+Syntax Error: at or near "HAVING", HAVING requires GROUP BY
+
+### q16_insert_explicit_column_list
+INSERT INTO EMPLOYEE (NAME, AGE, DEPARTMENT, DESIGNATION, SALARY) VALUES('SOMYA', 29, 'CSE', 'DB ENGINEER', 100000);
+--- expect
+Insert
+  TABLE: EMPLOYEE
+  COLUMN: NAME
+  COLUMN: AGE
+  COLUMN: DEPARTMENT
+  COLUMN: DESIGNATION
+  COLUMN: SALARY
+  VALUE_TUPLE
+    LITERAL: SOMYA
+    LITERAL: 29
+    LITERAL: CSE
+    LITERAL: DB ENGINEER
+    LITERAL: 100000
+
+### q17_insert_multi_row_values
+INSERT INTO EMPLOYEE (NAME, AGE) VALUES ('SOMYA', 29), ('RAHUL', 31), ('PRIYA', 27);
+--- expect
+Insert
+  TABLE: EMPLOYEE
+  COLUMN: NAME
+  COLUMN: AGE
+  VALUE_TUPLE
+    LITERAL: SOMYA
+    LITERAL: 29
+  VALUE_TUPLE
+    LITERAL: RAHUL
+    LITERAL: 31
+  VALUE_TUPLE
+    LITERAL: PRIYA
+    LITERAL: 27
+
+### q18_insert
+INSERT INTO EMPLOYEE VALUES ('SOMYA', 29), ('RAHUL', 31), ('PRIYA', 27);
+--- expect
+Insert
+  TABLE: EMPLOYEE
+  VALUE_TUPLE
+    LITERAL: SOMYA
+    LITERAL: 29
+  VALUE_TUPLE
+    LITERAL: RAHUL
+    LITERAL: 31
+  VALUE_TUPLE
+    LITERAL: PRIYA
+    LITERAL: 27
+
+### q19_aggregate_as_having_operand
+SELECT department FROM employees GROUP BY department HAVING SUM(salary) > 5000;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  GROUP BY
+    COLUMN: department
+  HAVING
+    GREATER
+      FUNCTION: SUM
+        ARG_LIST
+          COLUMN: salary
+      LITERAL: 5000
+
+### q20_alias
+SELECT department FROM employees GROUP BY department HAVING SUM(salary) AS s > 5000;
+--- error
+Syntax error: at or near "AS", <comparator expected>
+
+### q21_function_calls_projection_list
+SELECT department, COUNT(*), SUM(salary) FROM employees
+  GROUP BY department HAVING department = 'CSE' ORDER BY department DESC;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: department
+  FUNCTION: COUNT
+  FUNCTION: SUM
+    ARG_LIST
+      COLUMN: salary
+  GROUP BY
+    COLUMN: department
+  HAVING
+    EQUALS
+      COLUMN: department
+      LITERAL: CSE
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: department
+      DESC
+
+### q22_qualified_star
+select emp.* from employee emp;
+--- expect
+Select
+  FROM
+    TABLE: employee
+      ALIAS: emp
+  STAR
+    QUALIFIER: emp
+
+### q23_qualified_star_mixed_with
+SELECT emp.department, emp.salary, mang.* FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+    LEFT_JOIN
+      TABLE: manager
+        ALIAS: mang
+      EQUALS
+        COLUMN: id
+          QUALIFIER: emp
+        COLUMN: id
+          QUALIFIER: mang
+  COLUMN: department
+    QUALIFIER: emp
+  COLUMN: salary
+    QUALIFIER: emp
+  STAR
+    QUALIFIER: mang
+
+### q24_bare_star_mid_list
+select id, * from employee;
+--- expect
+Select
+  FROM
+    TABLE: employee
+  COLUMN: id
+  STAR
+
+### q25_unqualified_column_next_qualified
+select name, emp.dept from employees emp;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+  COLUMN: name
+  COLUMN: dept
+    QUALIFIER: emp
+
+### q26_compound_and_on
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON emp.dept_id = mang.dept_id AND emp.location = mang.location;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+    LEFT_JOIN
+      TABLE: manager
+        ALIAS: mang
+      AND
+        EQUALS
+          COLUMN: dept_id
+            QUALIFIER: emp
+          COLUMN: dept_id
+            QUALIFIER: mang
+        EQUALS
+          COLUMN: location
+            QUALIFIER: emp
+          COLUMN: location
+            QUALIFIER: mang
+  COLUMN: name
+    QUALIFIER: emp
+  COLUMN: name
+    QUALIFIER: mang
+
+### q27_mixed_or_and_on
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON emp.id = mang.id OR emp.backup_manager_id = mang.id AND emp.active = 1;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+    LEFT_JOIN
+      TABLE: manager
+        ALIAS: mang
+      OR
+        EQUALS
+          COLUMN: id
+            QUALIFIER: emp
+          COLUMN: id
+            QUALIFIER: mang
+        AND
+          EQUALS
+            COLUMN: backup_manager_id
+              QUALIFIER: emp
+            COLUMN: id
+              QUALIFIER: mang
+          EQUALS
+            COLUMN: active
+              QUALIFIER: emp
+            LITERAL: 1
+  COLUMN: name
+    QUALIFIER: emp
+  COLUMN: name
+    QUALIFIER: mang
+
+### q30_delete_with_where
+DELETE FROM employees WHERE id = 5;
+--- expect
+Delete
+  FROM
+    TABLE: employees
+  WHERE
+    EQUALS
+      COLUMN: id
+      LITERAL: 5
+
+### q32_drop_table
+DROP TABLE Employee;
+--- expect
+Drop
+  TABLE: Employee
+
+### q33_error_cases_1
+DROP TABLE Employee e;
+--- error
+Syntax error: at or near "e", expected ';'
+
+### q33_error_cases_2
+DROP Employee;
+--- error
+Syntax error: at or near "Employee", expected TABLE or INDEX
+
+### q33_error_cases_3
+DELETE employees WHERE id = 5;
+--- error
+Syntax error: at or near "employees", expected FROM
+
+### q34_drop_index_multiple_indexes
+DROP INDEX a, b ON t;
+--- expect
+Drop
+  INDEX_LIST
+    INDEX: a
+    INDEX: b
+  TABLE: t
+
+### q36_drop_if_exists_1
+DROP TABLE IF EXISTS t;
+--- expect
+Drop
+  IF_EXISTS
+  TABLE: t
+
+### q36_drop_if_exists_2
+DROP INDEX IF EXISTS a, b ON t;
+--- expect
+Drop
+  IF_EXISTS
+  INDEX_LIST
+    INDEX: a
+    INDEX: b
+  TABLE: t
+
+### q37_drop_error_cases_1
+DROP INDEX EMP_ID ON;
+--- error
+Syntax error: at or near ";", expected an identifier
+
+### q37_drop_error_cases_2
+DROP INDEX ON EMPLOYEE;
+--- error
+Syntax error: at or near "ON", expected an identifier
+
+### q37_drop_error_cases_3
+DROP INDEX EMP_ID ON EMPLOYEE e;
+--- error
+Syntax error: at or near "e", expected ';'
+
+### q37_drop_error_cases_4
+DROP TABLE IF t;
+--- error
+Syntax error: at or near "IF", expected an identifier
+
+### q37_drop_error_cases_5
+DROP TABLE IF EXISTS;
+--- error
+Syntax error: at or near ";", expected an identifier
+
+### q37_drop_error_cases_6
+DROP;
+--- error
+Syntax error: at or near ";", expected TABLE or INDEX
+
+### q38_order_by_identifier_then
+SELECT a FROM t ORDER BY name, 2;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  ORDER BY
+    ORDER_ITEM
+      COLUMN: name
+      ASC
+    ORDER_ITEM
+      POSITION: 2
+      ASC
+
+### q39_insert_multi_row_with
+INSERT INTO t (a, b) VALUES (1, 'x'), (2, 'y');
+--- expect
+Insert
+  TABLE: t
+  COLUMN: a
+  COLUMN: b
+  VALUE_TUPLE
+    LITERAL: 1
+    LITERAL: x
+  VALUE_TUPLE
+    LITERAL: 2
+    LITERAL: y
+
+### q40_select_list_alias_aggregate_1
+SELECT a x FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+    ALIAS: x
+
+### q40_select_list_alias_aggregate_2
+SELECT SUM(a) FROM t GROUP BY a;
+--- expect
+Select
+  FROM
+    TABLE: t
+  FUNCTION: SUM
+    ARG_LIST
+      COLUMN: a
+  GROUP BY
+    COLUMN: a
+
+### q41_error_routing_1
+INSERT INTO t (a x) VALUES (1);
+--- error
+Syntax error: at or near "x", expected ')'
+
+### q41_error_routing_2
+INSERT INTO t (a AS x) VALUES (1);
+--- error
+Syntax error: at or near "AS", expected ')'
+
+### q41_error_routing_3
+SELECT a FROM t GROUP BY a x;
+--- error
+Syntax error: at or near "x", expected ';'
+
+### q41_error_routing_4
+SELECT a FROM t ORDER BY name, ;
+--- error
+Syntax error: at or near ";", expected column or position after ','
+
+### q41_error_routing_5
+DROP INDEX idx.name ON t;
+--- error
+Syntax error: at or near "idx.name", index name cannot contain '.'
+
+### q41_error_routing_6
+DROP INDEX emp.* ON t;
+--- error
+Syntax error: at or near "emp.*", index name cannot contain '.'
+
+### q41_error_routing_7
+DROP INDEX idx;
+--- error
+Syntax error: at or near ";", expected ON
+
+### q41_error_routing_8
+DROP INDEX ;
+--- error
+Syntax error: at or near ";", expected an identifier
+
+### q41_error_routing_9
+INSERT INTO t VALUES (a);
+--- error
+Syntax error: at or near "a", expected a number or string
+
+### q41_error_routing_10
+INSERT INTO t VALUES (1, );
+--- error
+Syntax error: at or near ")", expected a number or string
+
+### q41_error_routing_11
+CREATE TABLE t (a);
+--- error
+Syntax error: at or near "CREATE", CREATE is not supported yet
+
+### q41_error_routing_12
+SELECT a FROM employees e.salary;
+--- error
+Syntax error: at or near "e.salary", alias cannot contain '.'
+
+### q41_error_routing_13
+SELECT a FROM emp.*;
+--- error
+Syntax error: at or near "emp.*", relation name cannot contain '*'
+
+### q41_error_routing_14
+DELETE FROM t WHERE id = 1 foo;
+--- error
+Syntax error: at or near "foo", expected ';'
+
+### q42_update
+UPDATE employees SET salary = 6000, dept = 'IT' WHERE id = 5;
+--- expect
+Update
+  TABLE: employees
+  SET
+    EQUALS
+      COLUMN: salary
+      LITERAL: 6000
+    EQUALS
+      COLUMN: dept
+      LITERAL: IT
+  WHERE
+    EQUALS
+      COLUMN: id
+      LITERAL: 5

@@ -11,11 +11,11 @@ std::vector<Token> tokenize(const std::string &sql){
     while (pos < length) {
         char c = sql[pos];
 
-        if (c == ' '){
+        
+        if (std::isspace(static_cast<unsigned char>(c))) {
             pos++;
             continue;
         }
-
         else if (std::isdigit(static_cast<unsigned char>(c))){
             std::string lexeme = "";
             while ((pos < length) && (std::isdigit(static_cast<unsigned char>(sql[pos])))){

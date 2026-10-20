@@ -1002,9 +1002,21 @@ the `LITERAL` node). The dispatch is on token *type*: the string `'a.b'`
 contains a dot but is a `STRING`, so it is a literal, not a qualified
 column.
 
-**Decision pending:** an alias on a literal (`SELECT 1 AS one`) is
-currently rejected. It is valid SQL; accepting it means giving the
-literal item an alias slot the way `column` and `function_call` have one.
+An alias on a literal is accepted: `SELECT 1 AS one`, `SELECT 1 one`,
+`SELECT 'x' AS tag`. The alias is a child of the `LITERAL` node, the same
+shape as a column alias:
+```
+Select
+  FROM
+    TABLE: t
+  LITERAL: 1
+    ALIAS: one
+```
+It is attached by the **select-list caller**, not by `parseLiteral`.
+`parseLiteral` is shared with `INSERT VALUES` and with operands, where an
+alias is not allowed, so it stays alias-free (the node-builder rule
+below). Cases pin the rejections: `INSERT INTO t VALUES (1 AS x)`,
+`WHERE a = 1 AS x`, and a dotted alias on a literal.
 
 ### Alias rules and the node-builder rule
 
@@ -1031,7 +1043,7 @@ that owns the grammar slot decides whether an alias is legal there**.
 | function arguments, operands | no |
 | `INSERT` column list, `GROUP BY` | no |
 | `UPDATE` / `DELETE` / `DROP` targets: `UPDATE` and `DELETE` take a relation (alias allowed); `DROP` and `INSERT` targets do not | see statement |
-| literal in the select list | no (pending) |
+| literal in the select list | yes |
 
 **Dotted aliases are rejected.** The lexer folds `.` into identifier
 tokens, so `FROM employees e.salary` would otherwise lex `e.salary` as a
@@ -1633,7 +1645,8 @@ while (true) {
 - [x] `parseInsertStatement()` / `parseValueTuple()` / `parseLiteral()`
 - [x] `parseProjectionList()` / `parseFunctionCall()` / `parseArgsList()`
       / `parseArg()`
-- [x] `SELECT *` and `table.*` as `STAR`; literals in the select list
+- [x] `SELECT *` and `table.*` as `STAR`; literals in the select list,
+      with optional aliases
 - [x] Qualified columns as `COLUMN` + `QUALIFIER` child
       (`parseQualifier(allow_star)`)
 - [x] Parenthesized expressions
@@ -1649,8 +1662,7 @@ while (true) {
       (multi-line queries)
 - [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
       failure log, run statistics, `test_script` entry point, CMake
-      targets; 65 cases from the reference queries (see **Automated
-      tests**)
+      targets; 80 cases, all passing (see **Automated tests**)
 - [x] Test run triggered by `git commit` (post-commit hook running
       `scripts/run_tests_if_changed.sh`)
 
@@ -1661,12 +1673,8 @@ while (true) {
       `DROP` of other objects
 - [ ] Finish the keyword mappers for the new words (`keywordTable`,
       `tokenTypeToString`) and the keyword-coverage lexer test
-- [ ] Settle node label naming (the cases now encode today's labels; see
+- [ ] Settle node label naming (the 80 cases encode today's labels; see
       **Open decision: node labels**)
-- [ ] Review the first full test run: every failure is either a stale
-      tree in this document or a parser bug (see **Reviewing failures**)
-- [ ] Two cases waiting for a verified tree (`SELECT DISTINCT ...`,
-      a literal in the select list) in `pending_cases.txt`
 - [ ] `ctest` wiring (`enable_testing()`, `add_test`), a `TEST_DIR`
       compile definition, and a `pre-push` hook that blocks a push on
       failures
@@ -1675,7 +1683,6 @@ while (true) {
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
-- [ ] Alias on a literal in the select list (`SELECT 1 AS one`)
 - [ ] Schema qualifier on relation names (open decision above)
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
@@ -1697,7 +1704,7 @@ while (true) {
 Until now every query was checked by hand in the REPL. The regression
 suite replaces that: a file of cases, each a query with its expected
 result, run in one command, with failures logged instead of stopping the
-run. **Status: built end to end; first full review of the cases still to do.**
+run. **Status: built end to end; 80 cases, all passing.**
 
 ### Design (from first principles)
 
@@ -1791,8 +1798,7 @@ tests/parser_test/
 ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
 ├── test_script.cpp           entry point: load cases, loop, summary, exit code
 ├── cases/
-│   ├── cases.txt             65 cases (trees and errors)
-│   └── pending_cases.txt     cases still waiting for a verified tree
+│   └── cases.txt             80 cases (trees and errors)
 ├── harness/
 │   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
 │   │                         failure_log.hpp  statistics.hpp  time_util.hpp
@@ -1835,7 +1841,8 @@ Error cases compare the **whole message**, so a wrong token or a wrong
 - **`test_statistics.log`:** one line per completed run, pipe-separated
   and easy to `grep`:
   ```
-  2026-10-18 18:29:46 | cases.txt | total=3 | passed=0 | failed=3 | failures_20261018_182946.log
+  2026-10-20 17:39:40 | cases.txt | total=67 | passed=62 | failed=5 | failures_20261020_173940.log
+  2026-10-20 17:42:26 | cases.txt | total=67 | passed=67 | failed=0 | -
   ```
   The last field is `-` when nothing failed. A run that aborts (the case
   file does not load) writes nothing. **Tracked in git** for a visible
@@ -1878,35 +1885,31 @@ suite. Results go to `tests/parser_test/logs/cron.out`.
 
 ### Where the cases came from
 
-The cases were generated from the **Reference test queries** below: 44
-numbered entries, some holding several statements, each paired with the
-tree or message recorded in this document. Trees were converted from the
-box-drawing form to the indented form; error messages come from the
-recorded `Error:` lines and the per-statement comments.
+**Generated from the reference queries (`q01`–`q44`).** The 44 numbered
+entries below, some holding several statements, were paired with the
+tree or message recorded in this document: trees converted from the
+box-drawing form to the indented form, error messages taken from the
+recorded `Error:` lines and the per-statement comments. The first runs
+were a review, not a verdict: this document was older than parts of the
+parser, so many early failures were stale trees or messages here
+(46/60 on the first full run, 56/60 the day it was finished), and a few
+trees had to be derived from the rules (`q28`, `q29`, `q31`, `q35`,
+`q43`) and then confirmed against the parser. An actual output is only
+ever accepted into a case after it has been read and judged correct; a
+case holding unread output would check nothing.
 
-Treat the first run as a review, not a verdict. This document is older
-than parts of the parser, so a failing case can mean the **document** is
-stale. Known soft spots:
+**Added afterwards (`q45` onward), to close coverage gaps:**
 
-- **Qualified columns** (`COLUMN: a.b` became `COLUMN: b` with a
-  `QUALIFIER: a` child) were converted by hand in several trees.
-- **Query 15** (`HAVING` without `GROUP BY`) expects the old message with
-  no `Syntax error:` prefix.
-- **Query 20** expects a placeholder (`<comparator expected>`); the text
-  above says to re-run it for the real wording.
-- **Label spelling** (`GREATER EQUAL` vs `GREATER_EQUAL`, `LEFT_JOIN`) —
-  the open decision below.
-- **Queries 28, 29, 31, 35 and 43** had no complete tree recorded; their
-  expected trees were derived from the rules in this document and are
-  unverified until the first run.
-- **Query 44** (`DISTINCT`, a literal in the select list) is in
-  `pending_cases.txt`: the document does not say where the `DISTINCT`
-  marker sits among `Select`'s children.
+| Cases | Why |
+|---|---|
+| `RIGHT JOIN`, plain `JOIN` with aliases, comma-separated relations with aliases, a join chain, a missing `ON`, a dotted alias on a joined relation | the generated cases only exercised `LEFT JOIN`; the relation/alias refactor had changed exactly the untested branches |
+| literal aliases (`AS`, no `AS`, string literal, two items) | the new feature |
+| `INSERT VALUES (1 AS x)`, `WHERE a = 1 AS x`, a dotted alias on a literal | the rejections: a feature is only pinned down once the places it must **not** work are tested too |
 
 ### Reviewing failures
 
 For each failing case, open the failure log and compare the `actual`
-block with this document, then decide which side is wrong:
+block with the expectation, then decide which side is wrong:
 
 1. **The document is stale** → accept the parser's output into the case
    (after reading it and agreeing it is correct) and fix the tree here.
@@ -1914,8 +1917,9 @@ block with this document, then decide which side is wrong:
 3. **A label is spelled differently** → this is the naming decision;
    settle it once and update all cases together.
 
-An actual output must never be pasted into a case unread: the case would
-then check nothing.
+When a case fails right after a change, check the case too: an expected
+tree that omitted a line (a missing `COLUMN`) fails the same way as a
+parser bug.
 
 ### Open decision: node labels
 
@@ -1924,7 +1928,7 @@ them before writing many cases: `GREATER_EQUAL` prints as
 `GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
 LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
 clause labels use spaces (`GROUP BY`) while others use underscores
-(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 65 of them now.
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 80 of them now.
 
 ### Build order
 
@@ -1935,10 +1939,20 @@ clause labels use spaces (`GROUP BY`) while others use underscores
    produced a readable entry.
 5. [x] `test_script.cpp` + CMake targets. (`enable_testing()` /
    `add_test` still to do.)
-6. [~] Reference queries moved in as cases (65 of 67; first full review
-   pending).
+6. [x] Reference queries moved in as cases and reviewed; coverage gaps
+   closed with further cases (80 in total).
 
-**Bugs the suite and its construction caught**
+**What the suite has caught**
+
+- **A regression during a refactor.** The first attempt to merge the
+  repeated relation-and-alias code dropped the suite from 67/67 to
+  62/67; the statistics log records it, and the next run (67/67) the
+  fix. The refactor then went through with the suite as the safety net.
+- **A coverage gap.** Passing 67/67 said nothing about `RIGHT JOIN`,
+  plain `JOIN` or comma-separated aliases, because no case used them;
+  the cases were added once that was noticed.
+
+**Bugs found while building it**
 
 - The lexer skipped only `' '` — multi-line queries failed. Fixed
   (see **`tokenize()` behavior**).

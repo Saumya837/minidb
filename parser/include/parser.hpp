@@ -28,6 +28,7 @@ std::unique_ptr<ASTNode> parseArg(const std::vector<Token>& tokens, size_t& pos)
 
 std::vector<std::unique_ptr<ASTNode>> parseColumnList(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseColumn(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos);
 
 std::unique_ptr<ASTNode> parseDistinctClause(const std::vector<Token>& tokens, size_t& pos);

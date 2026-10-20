@@ -296,7 +296,7 @@ Select
 ### q15_having_error_case
 SELECT department, salary FROM employees HAVING salary > 5000;
 --- error
-HAVING clause cannot exist without GROUP BY
+Syntax error: at or near "HAVING", HAVING requires GROUP BY
 
 ### q16_insert_explicit_column_list
 INSERT INTO EMPLOYEE (NAME, AGE, DEPARTMENT, DESIGNATION, SALARY) VALUES('SOMYA', 29, 'CSE', 'DB ENGINEER', 100000);
@@ -502,6 +502,55 @@ Select
   COLUMN: name
     QUALIFIER: mang
 
+### q28_parenthesized_on
+SELECT emp.name, mang.name FROM employees emp LEFT JOIN manager mang
+  ON (emp.id = mang.id OR emp.backup_manager_id = mang.id) AND emp.active = 1;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+    LEFT_JOIN
+      TABLE: manager
+        ALIAS: mang
+      AND
+        OR
+          EQUALS
+            COLUMN: id
+              QUALIFIER: emp
+            COLUMN: id
+              QUALIFIER: mang
+          EQUALS
+            COLUMN: backup_manager_id
+              QUALIFIER: emp
+            COLUMN: id
+              QUALIFIER: mang
+        EQUALS
+          COLUMN: active
+            QUALIFIER: emp
+          LITERAL: 1
+  COLUMN: name
+    QUALIFIER: emp
+  COLUMN: name
+    QUALIFIER: mang
+
+### q29_parentheses_where_nested_and
+SELECT name FROM employees WHERE ((salary > 5000) AND (department = 'CSE'));
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+  WHERE
+    AND
+      GREATER
+        COLUMN: salary
+        LITERAL: 5000
+      EQUALS
+        COLUMN: department
+        LITERAL: CSE
+
+
 ### q30_delete_with_where
 DELETE FROM employees WHERE id = 5;
 --- expect
@@ -512,6 +561,14 @@ Delete
     EQUALS
       COLUMN: id
       LITERAL: 5
+
+### q31_delete_with_alias_no
+DELETE FROM employees e;
+--- expect
+Delete
+  FROM
+    TABLE: employees
+      ALIAS: e
 
 ### q32_drop_table
 DROP TABLE Employee;
@@ -542,6 +599,14 @@ Drop
     INDEX: a
     INDEX: b
   TABLE: t
+
+### q35_drop_index_single_index
+DROP INDEX EMP_ID ON EMPLOYEE;
+--- expect
+Drop
+  INDEX_LIST
+    INDEX: EMP_ID
+  TABLE: EMPLOYEE
 
 ### q36_drop_if_exists_1
 DROP TABLE IF EXISTS t;
@@ -727,3 +792,111 @@ Update
       COLUMN: id
       LITERAL: 5
 
+### q43_qualified_column
+SELECT emp.name FROM employees emp WHERE emp.id = 5;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      ALIAS: emp
+  COLUMN: name
+    QUALIFIER: emp
+  WHERE
+    EQUALS
+      COLUMN: id
+        QUALIFIER: emp
+      LITERAL: 5
+
+### q44_distinct_literal_select_list_1
+SELECT DISTINCT name FROM employees;
+--- expect
+Select
+  DISTINCT
+  FROM
+    TABLE: employees
+  COLUMN: name
+
+### q44_distinct_literal_select_list_2
+SELECT name, 1 FROM employees;
+--- expect
+Select
+  FROM
+    TABLE: employees
+  COLUMN: name
+  LITERAL: 1
+
+### q45_join_right
+SELECT a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id;
+--- expect
+Select
+  FROM
+    TABLE: t1
+    RIGHT_JOIN
+      TABLE: t2
+      EQUALS
+        COLUMN: id
+          QUALIFIER: t1
+        COLUMN: id
+          QUALIFIER: t2
+  COLUMN: a
+
+### q46_join_plain_with_aliases
+SELECT a FROM t1 x JOIN t2 y ON x.id = y.id;
+--- expect
+Select
+  FROM
+    TABLE: t1
+      ALIAS: x
+    JOIN
+      TABLE: t2
+        ALIAS: y
+      EQUALS
+        COLUMN: id
+          QUALIFIER: x
+        COLUMN: id
+          QUALIFIER: y
+  COLUMN: a
+
+### q47_from_comma_aliases
+SELECT a FROM t1 x, t2 y;
+--- expect
+Select
+  FROM
+    TABLE: t1
+      ALIAS: x
+    TABLE: t2
+      ALIAS: y
+  COLUMN: a
+
+### q48_join_chain
+SELECT a FROM t1 LEFT JOIN t2 ON t1.id = t2.id RIGHT JOIN t3 ON t2.id = t3.id;
+--- expect
+Select
+  FROM
+    TABLE: t1
+    LEFT_JOIN
+      TABLE: t2
+      EQUALS
+        COLUMN: id
+          QUALIFIER: t1
+        COLUMN: id
+          QUALIFIER: t2
+    RIGHT_JOIN
+      TABLE: t3
+      EQUALS
+        COLUMN: id
+          QUALIFIER: t2
+        COLUMN: id
+          QUALIFIER: t3
+  COLUMN: a
+
+
+### q49_join_missing_on
+SELECT a FROM t1 JOIN t2;
+--- error
+Syntax error: at or near ";", expected ON
+
+### q50_join_dotted_alias
+SELECT a FROM t1 LEFT JOIN t2 x.y ON t1.id = t2.id;
+--- error
+Syntax error: at or near "x.y", alias cannot contain '.'

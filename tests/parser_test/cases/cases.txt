@@ -900,3 +900,58 @@ Syntax error: at or near ";", expected ON
 SELECT a FROM t1 LEFT JOIN t2 x.y ON t1.id = t2.id;
 --- error
 Syntax error: at or near "x.y", alias cannot contain '.'
+
+
+### q51_literal_alias_as
+SELECT 1 AS one FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  LITERAL: 1
+    ALIAS: one
+
+### q52_literal_alias_no_as
+SELECT 1 one FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  LITERAL: 1
+    ALIAS: one
+
+### q53_literal_string_alias_mixed
+SELECT name, 'x' AS tag FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: name
+  LITERAL: x
+    ALIAS: tag
+
+### q54_literal_alias_two_items
+SELECT 1 AS a, 2 AS b FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  LITERAL: 1
+    ALIAS: a
+  LITERAL: 2
+    ALIAS: b
+
+### q55_literal_alias_inside_insert
+INSERT INTO t VALUES (1 AS x);
+--- error
+Syntax error: at or near "AS", expected ')'
+
+### q56_literal_alias_comprator
+SELECT a FROM t WHERE a = 1 AS x;
+--- error
+Syntax error: at or near "AS", expected ';'
+
+### q57_literal_invalid_alias
+SELECT 1 AS a.b FROM t;
+--- error
+Syntax error: at or near "a.b", alias cannot contain '.'

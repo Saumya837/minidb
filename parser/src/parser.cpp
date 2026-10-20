@@ -283,8 +283,6 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
     return root;
 }
 
-
-
 std::unique_ptr<ASTNode> parseIndex(const std::vector<Token> &tokens, size_t &pos){
     auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
 
@@ -312,7 +310,6 @@ std::unique_ptr<ASTNode> parseIndexStatement(const std::vector<Token> &tokens, s
     }
     return indexList;
 }
-
 
 std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, size_t& pos){
     expect(tokens, pos, TokenType::DROP);
@@ -364,7 +361,6 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
     expect(tokens, pos, TokenType::SEMICOLON);
     return root;
 }
-
 
 std::unique_ptr<ASTNode> parseInsertStatement(const std::vector<Token>& tokens, size_t& pos){
     expect(tokens, pos, TokenType::INSERT);
@@ -561,6 +557,10 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
         }
         else{
             auto literalNode = parseLiteral(tokens, pos);
+            if((check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER))){
+                auto alias = parseAlias(tokens, pos); // Check for alias after column
+                literalNode->children.push_back(std::move(alias));
+            }
             projList.push_back(std::move(literalNode));
         }
     }
@@ -574,6 +574,10 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
     }
     else if (check(tokens, pos, TokenType::NUMBER) || check(tokens, pos, TokenType::STRING)){
         auto literalNode = parseLiteral(tokens, pos);
+        if((check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER))){
+            auto alias = parseAlias(tokens, pos); // Check for alias after column
+            literalNode->children.push_back(std::move(alias));
+        }
         projList.push_back(std::move(literalNode));
     }
     else{
@@ -615,6 +619,10 @@ std::vector<std::unique_ptr<ASTNode>> parseProjectionList(const std::vector<Toke
         }
         else if(check(tokens, pos, TokenType::NUMBER) || check(tokens, pos, TokenType::STRING)){
             auto literalNode = parseLiteral(tokens, pos);
+            if((check(tokens, pos, TokenType::AS) || check(tokens, pos, TokenType::IDENTIFIER))){
+                auto alias = parseAlias(tokens, pos); // Check for alias after column
+                literalNode->children.push_back(std::move(alias));
+            }
             projList.push_back(std::move(literalNode));
         }
         else{

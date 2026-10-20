@@ -104,7 +104,8 @@ Select
     LITERAL: 10
 
 ### q08_order_by_desc
-SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary DESC, department DESC LIMIT 10;
+SELECT department, salary FROM employees WHERE salary >= 5000
+  GROUP BY department, salary ORDER BY salary DESC, department DESC LIMIT 10;
 --- expect
 Select
   FROM
@@ -129,7 +130,8 @@ Select
     LITERAL: 10
 
 ### q09_order_by_bydefault_asc
-SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary, department LIMIT 10;
+SELECT department, salary FROM employees WHERE salary >= 5000
+  GROUP BY department, salary ORDER BY salary, department LIMIT 10;
 --- expect
 Select
   FROM
@@ -154,7 +156,8 @@ Select
     LITERAL: 10
 
 ### q10_order_by_mixed_order
-SELECT department, salary FROM employees WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+SELECT department, salary FROM employees WHERE salary >= 5000
+  GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
 --- expect
 Select
   FROM
@@ -179,7 +182,8 @@ Select
     LITERAL: 100
 
 ### q11_join
-SELECT department, salary FROM employees LEFT JOIN manager ON employee.id = manager.id WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+SELECT department, salary FROM employees LEFT JOIN manager ON employee.id = manager.id
+  WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
 --- expect
 Select
   FROM
@@ -211,7 +215,8 @@ Select
     LITERAL: 100
 
 ### q12_join_alias
-SELECT department, salary FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
+SELECT department, salary FROM employees AS emp LEFT JOIN manager AS mang ON emp.id = mang.id
+  WHERE salary >= 5000 GROUP BY department, salary ORDER BY salary ASC, department DESC LIMIT 100;
 --- expect
 Select
   FROM
@@ -245,7 +250,10 @@ Select
     LITERAL: 100
 
 ### q13_decimal_literals_join_qualified
-SELECT department, salary FROM employees LEFT JOIN departments ON employees.dept_id = departments.id WHERE salary < 3000.50 OR salary >= 10000.40 LIMIT 10;
+SELECT department, salary FROM employees
+  LEFT JOIN departments ON employees.dept_id = departments.id
+  WHERE salary < 3000.50 OR salary >= 10000.40
+  LIMIT 10;
 --- expect
 Select
   FROM
@@ -288,7 +296,7 @@ Select
 ### q15_having_error_case
 SELECT department, salary FROM employees HAVING salary > 5000;
 --- error
-Syntax Error: at or near "HAVING", HAVING requires GROUP BY
+HAVING clause cannot exist without GROUP BY
 
 ### q16_insert_explicit_column_list
 INSERT INTO EMPLOYEE (NAME, AGE, DEPARTMENT, DESIGNATION, SALARY) VALUES('SOMYA', 29, 'CSE', 'DB ENGINEER', 100000);
@@ -718,3 +726,4 @@ Update
     EQUALS
       COLUMN: id
       LITERAL: 5
+

@@ -1281,7 +1281,14 @@ else if (sql[pos] == ')') { tokens.push_back({TokenType::RPAREN, ")"}); pos++; }
 
 ### `tokenize()` behavior
 
-- Skips whitespace
+- Skips whitespace: **every** character `isspace` reports (space, tab,
+  newline, carriage return), cast to `unsigned char` first so a
+  non-ASCII byte cannot cause undefined behavior. It originally skipped
+  only `' '`, so a query containing a newline failed at that character.
+  The REPL hid this for a long time because it joins typed lines with a
+  space (`buffer += line + " "`); the automated tests found it, because
+  case files keep multi-line queries as written. Covered by tokenizer
+  tests for newline, CRLF and tab.
 - **Digits** → accumulate into a `NUMBER` token. After consuming all
   leading digits, if a `.` is followed by another digit (checked with
   lookahead), the `.` and the following digits are consumed too,
@@ -1638,9 +1645,14 @@ while (true) {
       parser)
 - [x] Keywords for `CREATE TABLE`: constraint words and data types in
       `TokenType` (`NULL_KW`, no `ISNULL`/`NOTNULL`/`ELSE`)
-- [~] Automated regression suite — scaffold committed (`tree_dump`,
-      `case_loader`, `failure_log` stubs); runner, cases and CMake
-      target still to do (see **Automated tests**)
+- [x] Whitespace in the lexer: any `isspace` character, not only `' '`
+      (multi-line queries)
+- [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
+      failure log, run statistics, `test_script` entry point, CMake
+      targets; 65 cases from the reference queries (see **Automated
+      tests**)
+- [x] Test run triggered by `git commit` (post-commit hook running
+      `scripts/run_tests_if_changed.sh`)
 
 **Not yet done:**
 - [ ] `CREATE TABLE` — keywords are in; grammar, `IF_NOT_EXISTS`,
@@ -1649,7 +1661,15 @@ while (true) {
       `DROP` of other objects
 - [ ] Finish the keyword mappers for the new words (`keywordTable`,
       `tokenTypeToString`) and the keyword-coverage lexer test
-- [ ] Settle node label naming before writing many test cases
+- [ ] Settle node label naming (the cases now encode today's labels; see
+      **Open decision: node labels**)
+- [ ] Review the first full test run: every failure is either a stale
+      tree in this document or a parser bug (see **Reviewing failures**)
+- [ ] Two cases waiting for a verified tree (`SELECT DISTINCT ...`,
+      a literal in the select list) in `pending_cases.txt`
+- [ ] `ctest` wiring (`enable_testing()`, `add_test`), a `TEST_DIR`
+      compile definition, and a `pre-push` hook that blocks a push on
+      failures
 - [ ] `isTypeToken` helper
 - [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
@@ -1677,7 +1697,7 @@ while (true) {
 Until now every query was checked by hand in the REPL. The regression
 suite replaces that: a file of cases, each a query with its expected
 result, run in one command, with failures logged instead of stopping the
-run. **Status: scaffold committed, behavior in progress.**
+run. **Status: built end to end; first full review of the cases still to do.**
 
 ### Design (from first principles)
 
@@ -1695,11 +1715,11 @@ run. **Status: scaffold committed, behavior in progress.**
 
 ```mermaid
 flowchart TD
-    CF["tests.txt<br/>### name · SQL · expect / error"] --> LD["case_loader<br/>file → vector&lt;TestCase&gt;"]
+    CF["cases.txt<br/>### name · SQL · expect / error"] --> LD["case_loader<br/>file → vector&lt;TestCase&gt;"]
     LD --> LOOP{"next case?"}
     LOOP -->|yes| RUN["case_runner<br/>tokenize → parseStatement"]
     RUN -->|parsed| DUMP["dumpTree → lines"]
-    RUN -->|"threw runtime_error"| MSG["error message"]
+    RUN -->|"threw an exception"| MSG["error message"]
     DUMP --> CMP{"compare line by line<br/>with expectation"}
     MSG --> CMP
     CMP -->|match| PASS["PASS"]
@@ -1707,8 +1727,8 @@ flowchart TD
     PASS --> LOOP
     FAIL --> FL["failure_log<br/>failures_&lt;ts&gt;.log"]
     FL --> LOOP
-    LOOP -->|no| SUM["summary + test_statistics.log line"]
-    SUM --> EXIT["exit code 0 / non-zero"]
+    LOOP -->|no| SUM["summary + one line in<br/>test_statistics.log"]
+    SUM --> EXIT["exit code 0 / 1 failures / 2 aborted"]
 ```
 
 **Comparison is line by line.** A tree serialised in pre-order, one node
@@ -1765,41 +1785,137 @@ what the REPL cannot — e.g. `SELECT a FROM t` with no `;` →
 ### Files
 
 ```
+scripts/
+└── run_tests_if_changed.sh   rebuild + run only if sources or cases changed
 tests/parser_test/
 ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
-├── test_script.cpp        entry point: find case files, loop, summary, exit code
-├── tests.txt              cases
+├── test_script.cpp           entry point: load cases, loop, summary, exit code
+├── cases/
+│   ├── cases.txt             65 cases (trees and errors)
+│   └── pending_cases.txt     cases still waiting for a verified tree
 ├── harness/
-│   ├── tree_dump.hpp/.cpp     node -> vector<string>
-│   ├── case_loader.hpp/.cpp   cases file -> vector<TestCase>
-│   └── failure_log.hpp/.cpp   results -> log file
+│   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
+│   │                         failure_log.hpp  statistics.hpp  time_util.hpp
+│   └── src/                  tree_dump.cpp  case_loader.cpp  case_runner.cpp
+│                             failure_log.cpp  statistics.cpp
 └── logs/
-    ├── test_statistics.log    tracked: one appended line per full run
-    └── failures_<timestamp>.log   generated per run, ignored by git
+    ├── test_statistics.log       tracked: one appended line per full run
+    ├── failures_<timestamp>.log  generated per run, ignored by git
+    └── cron.out                  output of the automatic runs, ignored by git
 ```
-Planned: `case_runner` (one case → pass/fail + reason, with the line
-comparison as its own function) and a statistics writer.
-Shared structs: `TestCase { number, name, sql, kind, expected }` and
+The harness is a static library, `minidb_test_harness`, that links
+`minidb_parser`; `test_script` links the harness. Shared structs:
+`TestCase { number, name, sql, kind, expected }` and
 `CaseResult { testCase, passed, reason, actual }`.
+
+**Pieces**
+
+| Piece | What it does |
+|---|---|
+| `dumpTree(root)` | tree → `vector<string>`, pre-order, two spaces per depth |
+| `loadCases(path)` | case file → `vector<TestCase>`; strips `\r`; trims blank lines at the *end* of SQL and expected text only; text before the first `###` is ignored; throws (naming the case) on a missing marker, an empty name or no SQL |
+| `firstDifference(expected, actual)` | `""` if equal, else `line N: expected '...' but got '...'`, or a length mismatch |
+| `runCase(tc)` | `tokenize` + `parseStatement`; catches `std::exception`, so a crash in the parser is one failed case, not the end of the run |
+| `FailureLog` | opens `failures_<ts>.log` on the first failure; one block per failure, flushed per record |
+| `appendStatistics` | one line per completed run |
+
+Error cases compare the **whole message**, so a wrong token or a wrong
+`detail` string fails the case. `passed` is derived from
+`reason.empty()`; there is one source of truth.
 
 ### Logs
 
 - **Failure log:** created by the run, never by hand; the file is
   opened lazily on the first failure, so a green run leaves none.
-  The directory is created if missing. Case number plus name identify a
-  case (numbers shift when cases are inserted).
-- **`test_statistics.log`:** `timestamp | total | passed | failed |
-  duration_ms`, appended only for a *full* run (a partial run would add
-  a misleading line). **Tracked in git** for a visible pass-count
-  history; the cost is that it shows as modified after every run, so it
-  is committed with the day's work. `.gitignore` ignores
-  `tests/parser_test/logs/failures_*.log`, not the whole folder.
-- **Paths** are built from a `TEST_DIR` compile definition set in CMake,
-  so the suite runs from any working directory (`ctest` runs from the
-  build directory).
-- No CI server: `ctest --test-dir build --output-on-failure`, a
-  one-line script, and optionally a local pre-push hook are enough for
-  one person on one machine.
+  The directory is created if missing. Each block holds the case number
+  and name, the reason, the SQL, the expected text and the actual text,
+  so a failure can be read without re-running it. Case number plus name
+  identify a case (numbers shift when cases are inserted). Two runs in
+  the same second would share a file name.
+- **`test_statistics.log`:** one line per completed run, pipe-separated
+  and easy to `grep`:
+  ```
+  2026-10-18 18:29:46 | cases.txt | total=3 | passed=0 | failed=3 | failures_20261018_182946.log
+  ```
+  The last field is `-` when nothing failed. A run that aborts (the case
+  file does not load) writes nothing. **Tracked in git** for a visible
+  pass-count history; the cost is that it shows as modified after every
+  run, so it is committed with the day's work. `.gitignore` ignores
+  `tests/parser_test/logs/failures_*.log` and `cron.out`, not the whole
+  folder.
+- **Scratch runs:** pass a different log directory as the second
+  argument (`test_script some_cases.txt /tmp/scratch_logs`) so
+  experiments do not add lines to the tracked statistics file.
+- **Exit codes:** 0 all passed, 1 some failed, 2 the run aborted.
+- **Paths:** `test_script` takes the case file and the log directory as
+  arguments, defaulting to `tests/parser_test/cases/cases.txt` and
+  `tests/parser_test/logs` relative to the working directory, so run it
+  from the repository root. A `TEST_DIR` compile definition (so it runs
+  from anywhere, including under `ctest`) is still to do.
+
+### Running automatically
+
+No CI server is needed for one person on one machine. After every
+`git commit`, a `post-commit` hook starts
+`scripts/run_tests_if_changed.sh` in the background. The script hashes
+every `.cpp`, `.hpp` and `.txt` file (excluding `build/`, `.git/`, the
+logs directory and `commitmsg.txt`), compares the hash with
+`build/.last_tested_hash`, and only if it changed rebuilds and runs the
+suite. Results go to `tests/parser_test/logs/cron.out`.
+
+- A build failure is logged (`BUILD FAILED` plus the last lines of
+  `build/cron_build.log`) and the stored hash is *not* updated, so the
+  next run tries again. A completed run, passing or failing, stores the
+  new hash.
+- The logs directory is excluded from the hash; otherwise every run
+  would change its own input.
+- The hook lives in `.git/hooks/` and is **not versioned**; the script is.
+  A fresh clone needs the hook added again (it appends a call to the
+  script).
+- A daily `cron` entry was considered and dropped: it runs on a clock
+  rather than on a change, and does not run while the laptop sleeps.
+  The same script works from `cron` or `launchd` if that is ever wanted.
+
+### Where the cases came from
+
+The cases were generated from the **Reference test queries** below: 44
+numbered entries, some holding several statements, each paired with the
+tree or message recorded in this document. Trees were converted from the
+box-drawing form to the indented form; error messages come from the
+recorded `Error:` lines and the per-statement comments.
+
+Treat the first run as a review, not a verdict. This document is older
+than parts of the parser, so a failing case can mean the **document** is
+stale. Known soft spots:
+
+- **Qualified columns** (`COLUMN: a.b` became `COLUMN: b` with a
+  `QUALIFIER: a` child) were converted by hand in several trees.
+- **Query 15** (`HAVING` without `GROUP BY`) expects the old message with
+  no `Syntax error:` prefix.
+- **Query 20** expects a placeholder (`<comparator expected>`); the text
+  above says to re-run it for the real wording.
+- **Label spelling** (`GREATER EQUAL` vs `GREATER_EQUAL`, `LEFT_JOIN`) —
+  the open decision below.
+- **Queries 28, 29, 31, 35 and 43** had no complete tree recorded; their
+  expected trees were derived from the rules in this document and are
+  unverified until the first run.
+- **Query 44** (`DISTINCT`, a literal in the select list) is in
+  `pending_cases.txt`: the document does not say where the `DISTINCT`
+  marker sits among `Select`'s children.
+
+### Reviewing failures
+
+For each failing case, open the failure log and compare the `actual`
+block with this document, then decide which side is wrong:
+
+1. **The document is stale** → accept the parser's output into the case
+   (after reading it and agreeing it is correct) and fix the tree here.
+2. **The parser is wrong** → fix the parser; the case stays as it is.
+3. **A label is spelled differently** → this is the naming decision;
+   settle it once and update all cases together.
+
+An actual output must never be pasted into a case unread: the case would
+then check nothing.
 
 ### Open decision: node labels
 
@@ -1808,17 +1924,31 @@ them before writing many cases: `GREATER_EQUAL` prints as
 `GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
 LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
 clause labels use spaces (`GROUP BY`) while others use underscores
-(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case.
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 65 of them now.
 
 ### Build order
 
-1. `tree_dump` (checked against one query).
-2. `case_loader` on a file of two cases.
-3. `case_runner` — comparison first, then the parser call.
-4. `failure_log`, then break a case on purpose to see a readable entry.
-5. `test_script.cpp` + CMake target + `add_test`.
-6. Move the reference queries in, grouped by statement, reviewing each
-   expected tree against this document.
+1. [x] `tree_dump` (checked against one query).
+2. [x] `case_loader` on a file of two cases.
+3. [x] `case_runner` — comparison first, then the parser call.
+4. [x] `failure_log` and run statistics; a broken case on purpose
+   produced a readable entry.
+5. [x] `test_script.cpp` + CMake targets. (`enable_testing()` /
+   `add_test` still to do.)
+6. [~] Reference queries moved in as cases (65 of 67; first full review
+   pending).
+
+**Bugs the suite and its construction caught**
+
+- The lexer skipped only `' '` — multi-line queries failed. Fixed
+  (see **`tokenize()` behavior**).
+- A trailing space at the end of an error `detail` string
+  (`...function call) `) showed up in a message comparison. Fixed in the
+  parser, not worked around in the test (editors strip trailing spaces,
+  so a case expecting one could never be stable).
+- Harness sources missing from the CMake source list produced a link
+  error rather than a compile error: headers were found, definitions
+  were not.
 
 ---
 

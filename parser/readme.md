@@ -1371,7 +1371,7 @@ DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
 index_list       := index (COMMA index)*
 index            := IDENTIFIER                   # no '.' or '*'
 
-SelectStat       := SELECT DISTINCT? projection_list from_clause where_clause? group_by_clause?
+SelectStat       := SELECT DISTINCT? projection_list from_clause? where_clause? group_by_clause?
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*

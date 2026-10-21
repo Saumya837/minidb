@@ -1018,6 +1018,60 @@ alias is not allowed, so it stays alias-free (the node-builder rule
 below). Cases pin the rejections: `INSERT INTO t VALUES (1 AS x)`,
 `WHERE a = 1 AS x`, and a dotted alias on a literal.
 
+### `SELECT` without `FROM`
+
+```
+SelectStat := SELECT DISTINCT? projection_list from_clause? where_clause? ...
+```
+`from_clause` is optional, so `SELECT 1;`, `SELECT 1 AS one, 'x' AS tag;`
+and `SELECT DISTINCT 1;` are valid. The `Select` node simply has no `FROM`
+child:
+```
+SELECT 1 AS one;
+
+Select
+  LITERAL: 1
+    ALIAS: one
+```
+
+**Decisions**
+- **The parser accepts what the grammar allows; meaning is the binder's
+  job.** `SELECT name;`, `SELECT *;` and `SELECT emp.name;` parse, but
+  there is no table to resolve them against. The binder must reject them
+  (Postgres says `column "name" does not exist` and `SELECT * with no
+  tables specified is not valid`). Without `FROM`, only literals and
+  function calls mean anything.
+- **The other clauses stay independent and optional.** `SELECT 1 WHERE 1 =
+  1;` parses (Postgres accepts it too); the parser does not tie `WHERE`,
+  `ORDER BY` or `LIMIT` to the presence of `FROM`. The existing rule that
+  `HAVING` requires `GROUP BY` is unchanged.
+- **No `FROM`, no joins.** Joins belong to `from_clause`, so they cannot
+  appear without it.
+- **Consumers must not assume `children[0]` is `FROM`.** This is the one
+  change visible to anything that walks the tree: look the clause up by
+  tag. The binder will be the first such consumer.
+- **Entry:** `FROM` is peeked like every other optional clause (see the
+  flow diagram below); once seen, `parseFromClause` throws its own precise
+  errors, so `SELECT 1 FROM;` still fails at `";"` on the missing
+  relation name.
+- **Error messages change for one case.** `SELECT a;` used to fail with
+  `expected FROM`; it now parses. A stray token after the projection list
+  is now reported as `expected ';'` (the first thing that can follow)
+  rather than `expected FROM`.
+
+**Cases to add with the parser change** (trees derived from the rules
+above; check each against the parser before accepting it):
+```
+SELECT 1;                          Select / LITERAL: 1
+SELECT 1 AS one, 'x' AS tag;       Select / LITERAL: 1 / ALIAS: one / LITERAL: x / ALIAS: tag
+SELECT DISTINCT 1;                 Select / DISTINCT / LITERAL: 1
+SELECT 1 WHERE 1 = 1;              Select / LITERAL: 1 / WHERE / EQUALS / LITERAL: 1 / LITERAL: 1
+SELECT name;                       Select / COLUMN: name        (binder rejects later)
+SELECT;                            error: at or near ";", expected a value (column, literal or function call)
+SELECT 1 FROM;                     error: at or near ";", expected an identifier
+```
+(each tree one node per line, two spaces per depth, in the case file).
+
 ### Alias rules and the node-builder rule
 
 **Rule: a function that builds a node must not consume tokens that belong
@@ -1375,7 +1429,9 @@ SelectStat       := SELECT DISTINCT? projection_list from_clause? where_clause? 
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := STAR | qualified_star | function_call | literal | column
+projection_item  := STAR | qualified_star | function_call | literal_item | column
+literal_item     := literal alias?                # alias attached by the select-list caller
+literal          := NUMBER | STRING               # parseLiteral never takes an alias
 qualified_star   := IDENTIFIER_DOT_STAR      # lexed as one token, e.g. emp.*
 function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
 arg_list         := STAR | arg_item (COMMA arg_item)*
@@ -1385,9 +1441,13 @@ plain_column_list := plain_column (COMMA plain_column)*  # INSERT, GROUP BY: no 
 column            := qualified_name alias?               # select list only for alias
 qualified_name    := IDENTIFIER                          # optionally table.column
 
-from_clause       := FROM relation (COMMA relation)* joins*
+from_clause       := FROM relation (COMMA relation)* joins*   # optional in SelectStat;
+                                                              # joins exist only inside it
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
 relation          := IDENTIFIER alias?                   # may contain '.', never '*'
+                                                         # parseRelation builds the node;
+                                                         # parseRelationWithAlias adds the alias
+                                                         # (FROM, JOIN, UPDATE, DELETE)
 alias             := AS? IDENTIFIER                      # no '.'
 
 where_clause      := WHERE condition
@@ -1423,6 +1483,13 @@ reused, unmodified, by `HAVING` and — as of the compound-`ON` fix above
 — fully by `ON` as well; all three clauses share one precedence
 implementation rather than three parallel ones.
 
+**Where an alias is allowed.** The grammar shows `alias?` in exactly the
+slots that accept one: select-list columns, function calls and literals,
+and relations. It does not appear in `operand`, `arg_item`, the `INSERT`
+value tuple (which uses the bare `literal`) or the plain column list. The
+node-builder rule enforces this in code: builders never consume an alias
+themselves, and the caller that owns the slot attaches it.
+
 **Why the plain column list (used by `GROUP BY` and the `INSERT` column
 list) stayed separate from `projection_list` (used by `SELECT`).** `GROUP BY SUM(x)` isn't valid
 SQL — you can't group rows by an aggregate result computed from those
@@ -1441,8 +1508,10 @@ flowchart TD
     C -->|yes| D["DISTINCT marker node"]
     C -->|no| E
     D --> E["parseProjectionList<br/>STAR / qualified star / function / literal / column"]
-    E --> F["parseFromClause<br/>relations + joins"]
-    F --> G{"WHERE?"}
+    E --> F{"FROM?"}
+    F -->|yes| F1["parseFromClause<br/>relations + joins"]
+    F -->|no| G
+    F1 --> G{"WHERE?"}
     G -->|yes| G1["parseWhereClause"]
     G -->|no| H
     G1 --> H{"GROUP BY?"}
@@ -1663,8 +1732,10 @@ while (true) {
 - [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
       failure log, run statistics, `test_script` entry point, CMake
       targets; 80 cases, all passing (see **Automated tests**)
+- [x] `ctest` wiring: `enable_testing()`, `add_test(parser_cases)`, and a
+      `TEST_DIR` compile definition for the default paths
 - [x] Test run triggered by `git commit` (post-commit hook running
-      `scripts/run_tests_if_changed.sh`)
+      `tests/scripts/run_tests_if_changed.sh`)
 
 **Not yet done:**
 - [ ] `CREATE TABLE` — keywords are in; grammar, `IF_NOT_EXISTS`,
@@ -1675,15 +1746,16 @@ while (true) {
       `tokenTypeToString`) and the keyword-coverage lexer test
 - [ ] Settle node label naming (the 80 cases encode today's labels; see
       **Open decision: node labels**)
-- [ ] `ctest` wiring (`enable_testing()`, `add_test`), a `TEST_DIR`
-      compile definition, and a `pre-push` hook that blocks a push on
-      failures
+- [ ] A `pre-push` hook that runs `ctest` and blocks a push on failures
 - [ ] `isTypeToken` helper
 - [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
 - [ ] Schema qualifier on relation names (open decision above)
+- [ ] Optional `FROM` in `SELECT`: grammar and design are updated (see
+      **`SELECT` without `FROM`**); `parseSelectStatement` change and its
+      cases still to do
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
 - [ ] Restrict `DELETE` to a single relation (currently a `relation`
@@ -1695,7 +1767,8 @@ while (true) {
       separately, and exceptions propagate raw)
 - [ ] Semantic analysis (binder/catalog) — separate stage; its rules are
       collected in the sections above (qualifier resolution, `EQUALS`
-      under `SET`, `TABLE` meaning under `DROP INDEX`, relation names)
+      under `SET`, `TABLE` meaning under `DROP INDEX`, relation names, columns
+      and `*` in a `SELECT` without `FROM`)
 
 ---
 
@@ -1792,22 +1865,23 @@ what the REPL cannot — e.g. `SELECT a FROM t` with no `;` →
 ### Files
 
 ```
-scripts/
-└── run_tests_if_changed.sh   rebuild + run only if sources or cases changed
-tests/parser_test/
-├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
-├── test_script.cpp           entry point: load cases, loop, summary, exit code
-├── cases/
-│   └── cases.txt             80 cases (trees and errors)
-├── harness/
-│   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
-│   │                         failure_log.hpp  statistics.hpp  time_util.hpp
-│   └── src/                  tree_dump.cpp  case_loader.cpp  case_runner.cpp
-│                             failure_log.cpp  statistics.cpp
-└── logs/
-    ├── test_statistics.log       tracked: one appended line per full run
-    ├── failures_<timestamp>.log  generated per run, ignored by git
-    └── cron.out                  output of the automatic runs, ignored by git
+tests/
+├── scripts/
+│   └── run_tests_if_changed.sh   rebuild + run only if sources or cases changed
+└── parser_test/
+    ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
+    ├── test_script.cpp           entry point: load cases, loop, summary, exit code
+    ├── cases/
+    │   └── cases.txt             80 cases (trees and errors)
+    ├── harness/
+    │   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
+    │   │                         failure_log.hpp  statistics.hpp  time_util.hpp
+    │   └── src/                  tree_dump.cpp  case_loader.cpp  case_runner.cpp
+    │                             failure_log.cpp  statistics.cpp
+    └── logs/
+        ├── test_statistics.log       tracked: one appended line per full run
+        ├── failures_<timestamp>.log  generated per run, ignored by git
+        └── cron.out                  output of the automatic runs, ignored by git
 ```
 The harness is a static library, `minidb_test_harness`, that links
 `minidb_parser`; `test_script` links the harness. Shared structs:
@@ -1853,18 +1927,23 @@ Error cases compare the **whole message**, so a wrong token or a wrong
 - **Scratch runs:** pass a different log directory as the second
   argument (`test_script some_cases.txt /tmp/scratch_logs`) so
   experiments do not add lines to the tracked statistics file.
-- **Exit codes:** 0 all passed, 1 some failed, 2 the run aborted.
-- **Paths:** `test_script` takes the case file and the log directory as
-  arguments, defaulting to `tests/parser_test/cases/cases.txt` and
-  `tests/parser_test/logs` relative to the working directory, so run it
-  from the repository root. A `TEST_DIR` compile definition (so it runs
-  from anywhere, including under `ctest`) is still to do.
+- **Exit codes:** 0 all passed, 1 some failed, 2 the run aborted (the
+  case file cannot be loaded or contains no cases).
+- **Running it:** `ctest --test-dir build --output-on-failure` is the
+  standard way (the test is `parser_cases`); `./build/test_script` runs
+  the same suite directly, with the output of every case.
+- **Paths:** the default case file and log directory are built from a
+  `TEST_DIR` compile definition that CMake sets on the `test_script`
+  target (`${CMAKE_SOURCE_DIR}/tests/parser_test`), so the suite runs from
+  any working directory, including under `ctest`. A `#error` stops the
+  build if the definition is missing. The two command-line arguments
+  (case file, log directory) still override the defaults.
 
 ### Running automatically
 
 No CI server is needed for one person on one machine. After every
 `git commit`, a `post-commit` hook starts
-`scripts/run_tests_if_changed.sh` in the background. The script hashes
+`tests/scripts/run_tests_if_changed.sh` in the background. The script hashes
 every `.cpp`, `.hpp` and `.txt` file (excluding `build/`, `.git/`, the
 logs directory and `commitmsg.txt`), compares the hash with
 `build/.last_tested_hash`, and only if it changed rebuilds and runs the
@@ -1937,8 +2016,9 @@ clause labels use spaces (`GROUP BY`) while others use underscores
 3. [x] `case_runner` — comparison first, then the parser call.
 4. [x] `failure_log` and run statistics; a broken case on purpose
    produced a readable entry.
-5. [x] `test_script.cpp` + CMake targets. (`enable_testing()` /
-   `add_test` still to do.)
+5. [x] `test_script.cpp`, CMake targets, `enable_testing()` and
+   `add_test`; `ctest --test-dir build --output-on-failure` runs the
+   suite.
 6. [x] Reference queries moved in as cases and reviewed; coverage gaps
    closed with further cases (80 in total).
 

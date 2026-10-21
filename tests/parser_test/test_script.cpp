@@ -5,14 +5,22 @@
 
 #include <iostream>
 
+#ifndef TEST_DIR
+#error "TEST_DIR must be defined by CMake (see target_compile_definitions)"
+#endif
+
 int main(int argc, char** argv) {
-    std::string path   = argc > 1 ? argv[1] : "tests/parser_test/cases/cases.txt";
-    std::string logDir = argc > 2 ? argv[2] : "tests/parser_test/logs";
+    std::string base   = TEST_DIR;
+    std::string path   = argc > 1 ? argv[1] : base + "/cases/cases.txt";
+    std::string logDir = argc > 2 ? argv[2] : base + "/logs";
 
     try {
         std::vector<TestCase> cases = loadCases(path);
-        FailureLog flog(logDir, path);
+        if (cases.empty()) {
+            throw std::runtime_error(path + ": no cases found");
+        }
 
+        FailureLog flog(logDir, path);
         int failed = 0;
         for (const TestCase& tc : cases) {
             CaseResult r = runCase(tc);

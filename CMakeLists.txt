@@ -5,6 +5,8 @@ set(CMAKE_OSX_ARCHITECTURES "arm64")
 
 project(minidb CXX)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -62,6 +64,7 @@ add_library(minidb_parser STATIC
     parser/src/printer.cpp
 )
 
+
 add_library(minidb_test_harness STATIC
     tests/parser_test/harness/src/tree_dump.cpp
     tests/parser_test/harness/src/case_loader.cpp
@@ -70,6 +73,8 @@ add_library(minidb_test_harness STATIC
     tests/parser_test/harness/src/statistics.cpp
 )
 
+target_include_directories(minidb_test_harness PUBLIC tests/parser_test/harness/include)
+target_link_libraries(minidb_test_harness PUBLIC minidb_parser)
 
 # ---- parser tests (no Postgres needed) ----------------------------------
 add_executable(ast_test       tests/parser_test/ast_test.cpp)
@@ -80,12 +85,12 @@ target_link_libraries(ast_test       minidb_parser)
 target_link_libraries(tokenizer_test minidb_parser)
 target_link_libraries(parse_test     minidb_parser)
 
-target_include_directories(minidb_test_harness PUBLIC tests/parser_test/harness/include)
-target_link_libraries(minidb_test_harness PUBLIC minidb_parser)
-
+# the case suite: `ctest --test-dir build --output-on-failure`
 add_executable(test_script tests/parser_test/test_script.cpp)
 target_link_libraries(test_script minidb_test_harness)
-
+target_compile_definitions(test_script PRIVATE
+    TEST_DIR="${CMAKE_SOURCE_DIR}/tests/parser_test")
+add_test(NAME parser_cases COMMAND test_script)
 
 # ---- targets that need libpq --------------------------------------------
 if(HAVE_PG)

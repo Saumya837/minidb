@@ -119,7 +119,6 @@ namespace {
     }
 }
 
-
 std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t& pos){
     if(check(tokens, pos, TokenType::SELECT)){
         return parseSelectStatement(tokens, pos);
@@ -271,8 +270,13 @@ std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, 
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::DELETE;
 
-    auto fromNode = parseFromClause(tokens, pos);
-    root->children.push_back(std::move(fromNode));
+    expect(tokens, pos, TokenType::FROM);
+    auto from = std::make_unique<ASTNode>();
+    from->type = Clauses::FROM;                       // same tag parseFromClause uses
+
+    auto relation = parseRelationWithAlias(tokens, pos);
+    from->children.push_back(std::move(relation));
+    root->children.push_back(std::move(from));
 
     if(check(tokens, pos, TokenType::WHERE)){
         auto whereNode = parseWhereClause(tokens, pos);
@@ -655,7 +659,6 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
     return function;
 }
 
-
 std::vector<std::unique_ptr<ASTNode>> parseArgsList(const std::vector<Token>& tokens, size_t& pos){
     std::vector<std::unique_ptr<ASTNode>> argsList;
     auto first_arg = parseArg(tokens, pos);
@@ -729,7 +732,6 @@ std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens
     return rel;
 }
 
-
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
 
@@ -777,7 +779,6 @@ std::unique_ptr<ASTNode> parseWhereClause(const std::vector<Token>& tokens, size
 
     return wh_node;
 }
-
 
 std::unique_ptr<ASTNode> parsePrimary(const std::vector<Token>& tokens, size_t& pos) {
     if (check(tokens, pos, TokenType::LPAREN)) {

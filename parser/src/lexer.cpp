@@ -11,7 +11,6 @@ std::vector<Token> tokenize(const std::string &sql){
     while (pos < length) {
         char c = sql[pos];
 
-        
         if (std::isspace(static_cast<unsigned char>(c))) {
             pos++;
             continue;

@@ -955,3 +955,61 @@ Syntax error: at or near "AS", expected ';'
 SELECT 1 AS a.b FROM t;
 --- error
 Syntax error: at or near "a.b", alias cannot contain '.'
+
+### q58_optional_from_without_alias
+SELECT 1;
+--- expect
+Select
+  LITERAL: 1
+
+### q59_optional_from_alias
+SELECT 1 AS one, 'x' AS tag;
+--- expect
+Select
+  LITERAL: 1
+    ALIAS: one
+  LITERAL: x
+    ALIAS: tag
+
+### q60_optional_from_with_distinct
+SELECT DISTINCT 1;
+--- expect
+Select
+  DISTINCT
+  LITERAL: 1
+
+### q61_optional_from_where
+SELECT 1 WHERE 1 = 1;
+--- expect
+Select
+  LITERAL: 1
+  WHERE
+    EQUALS
+      LITERAL: 1
+      LITERAL: 1
+
+### q62_optional_from_alias_with_distinct
+SELECT DISTINCT 1 AS one;
+--- expect
+Select
+  DISTINCT
+  LITERAL: 1
+    ALIAS: one
+
+### q63_delete_rejects_comma_list
+DELETE FROM a, b;
+--- error
+Syntax error: at or near ",", expected ';'
+
+### q64_delete_rejects_join
+DELETE FROM a JOIN b ON a.id = b.id;
+--- error
+Syntax error: at or near "JOIN", expected ';'
+
+### q65_delete_rejects_left_join
+DELETE FROM a LEFT JOIN b ON a.id = b.id WHERE a.id = 1;
+--- error
+Syntax error: at or near "LEFT", expected ';'
+
+
+

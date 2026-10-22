@@ -1,4 +1,5 @@
 #include "parser.hpp"
+#include <iostream>
 
 namespace {
     std::string tokenTypeToString(TokenType type) {
@@ -133,7 +134,7 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
         return parseDropStatement(tokens, pos); 
     }
      else if(check(tokens, pos, TokenType::CREATE)){
-        parseError(tokens, pos, "CREATE is not supported yet");
+        return parseCreateStatement(tokens, pos); 
     }
     else if(check(tokens, pos, TokenType::UPDATE)){
         return parseUpdateStatement(tokens, pos);
@@ -146,28 +147,97 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     }   
 }
 
-std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, size_t& pos){
-    expect(tokens, pos, TokenType::CREATE);
+
+// One column: name, type, constraints. Does not touch the parentheses or commas.
+std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t& pos) {
+    if (!check(tokens, pos, TokenType::IDENTIFIER)) {
+        parseError(tokens, pos, "expected a column name");
+    }
+    Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
+    auto col = std::make_unique<ASTNode>();
+    col->type = ValueType::COLUMN;                 // adapt: new tag + label "COLUMN_DEF"
+    col->value = idToken.lexeme;                  // adapt: same field parseRelation reads
+
+    // type
+    auto type = std::make_unique<ASTNode>();
+    type->type = Clauses::TYPE;                      // adapt: new tag + label "TYPE"
+    if (check(tokens, pos, TokenType::INT)) {
+        type->value = "INT";
+        pos++;
+    } else if (check(tokens, pos, TokenType::TEXT)) {
+        type->value = "TEXT";
+        pos++;
+    } else if (check(tokens, pos, TokenType::VARCHAR)) {
+        type->value = "VARCHAR";
+        pos++;
+        expect(tokens, pos, TokenType::LPAREN);
+        if (!check(tokens, pos, TokenType::NUMBER)) {
+            parseError(tokens, pos, "expected a length");
+        }
+        type->children.push_back(parseLiteral(tokens, pos));   // adapt: your literal builder
+        expect(tokens, pos, TokenType::RPAREN);
+    } else {
+        parseError(tokens, pos, "expected a type (INT, TEXT or VARCHAR)");
+    }
+    col->children.push_back(std::move(type));
+
+    // constraints
+    while (true) {
+        if (check(tokens, pos, TokenType::PRIMARY)) {
+            expect(tokens, pos, TokenType::PRIMARY);
+            expect(tokens, pos, TokenType::KEY);
+            auto pk = std::make_unique<ASTNode>();
+            pk->type = Constraints::PRIMARY_KEY;         // adapt: new tag + label "PRIMARY_KEY"
+            col->children.push_back(std::move(pk));
+        } else if (check(tokens, pos, TokenType::NOT)) {
+            expect(tokens, pos, TokenType::NOT);
+            expect(tokens, pos, TokenType::NULL_KW); // adapt: your NULL token name
+            auto nn = std::make_unique<ASTNode>();
+            nn->type = ExpressionType::NOT_NULL;            // adapt: new tag + label "NOT_NULL"
+            col->children.push_back(std::move(nn));
+        } else {
+            break;
+        }
+    }
+    return col;
+}
+
+std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size_t& pos){
+    expect(tokens, pos, TokenType::TABLE);
     auto root = std::make_unique<ASTNode>();
     root->type = StatementType::CREATE;
 
-    if(check(tokens, pos, TokenType::IF) && check(tokens, pos + 1, TokenType::NOT) && check(tokens, pos + 2, TokenType::EXISTS)){
-            expect(tokens, pos, TokenType::IF);
-            expect(tokens, pos, TokenType::NOT);
-            expect(tokens, pos, TokenType::EXISTS);
-            auto if_exists_node = std::make_unique<ASTNode>();
-            if_exists_node->type = Clauses::IF_EXISTS;
-            root->children.push_back(std::move(if_exists_node));
-        }
+    if (check(tokens, pos, TokenType::IF)) {
+        expect(tokens, pos, TokenType::IF);
+        expect(tokens, pos, TokenType::NOT);
+        expect(tokens, pos, TokenType::EXISTS);
+        auto ine = std::make_unique<ASTNode>();
+        ine->type = Constraints::IF_NOT_EXISTS;
+        root->children.push_back(std::move(ine));
+    }
 
-    if(check(tokens, pos, TokenType::TABLE)){
-        expect(tokens, pos, TokenType::TABLE);
-        auto table = std::make_unique<ASTNode>();
-        table->type = Relations::TABLE;
+    auto relation =  parseRelation(tokens, pos);
+    root->children.push_back(std::move(relation));
 
-        auto relation = parseRelation(tokens, pos);
-        table->children.push_back(std::move(relation));
-        root->children.push_back(std::move(table));
+    expect(tokens, pos, TokenType::LPAREN);
+    do {
+        auto columns = parseColumnDef(tokens, pos);
+        root->children.push_back(std::move(columns));
+    } while (!check(tokens, pos, TokenType::RPAREN) && (pos++, true));
+    expect(tokens, pos, TokenType::RPAREN);
+    return root;
+}
+
+
+
+std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, size_t& pos){
+    expect(tokens, pos, TokenType::CREATE);
+    std::unique_ptr<ASTNode> root = nullptr;
+    
+    if (check(tokens, pos, TokenType::TABLE)) {
+        root = parseCreateTable(tokens, pos);
+    } else {
+        parseError(tokens, pos, "expected TABLE, MATERIALIZED VIEW or FUNCTION");
     }
 
     //parsing value with its type
@@ -327,7 +397,7 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
             expect(tokens, pos, TokenType::IF);
             expect(tokens, pos, TokenType::EXISTS);
             auto if_exists_node = std::make_unique<ASTNode>();
-            if_exists_node->type = Clauses::IF_EXISTS;
+            if_exists_node->type = Constraints::IF_EXISTS;
             root->children.push_back(std::move(if_exists_node));
         }
 
@@ -346,7 +416,7 @@ std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, si
             expect(tokens, pos, TokenType::IF);
             expect(tokens, pos, TokenType::EXISTS);
             auto if_exists_node = std::make_unique<ASTNode>();
-            if_exists_node->type = Clauses::IF_EXISTS;
+            if_exists_node->type = Constraints::IF_EXISTS;
             root->children.push_back(std::move(if_exists_node));
         }
 
@@ -733,6 +803,9 @@ std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens
 }
 
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
+    if (!check(tokens, pos, TokenType::IDENTIFIER)) {
+        parseError(tokens, pos, "expected a table name");
+    }
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
 
     if(idToken.lexeme.find('*') != std::string::npos){

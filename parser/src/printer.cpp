@@ -29,8 +29,8 @@ std::string tagToString(const ASTTag& tag){
                 case Clauses::ORDER_BY: return "ORDER BY";
                 case Clauses::HAVING: return "HAVING";
                 case Clauses::LIMIT: return "LIMIT";
-                case Clauses::IF_EXISTS: return "IF_EXISTS";
                 case Clauses::SET: return "SET";
+                case Clauses::TYPE: return "TYPE";
             }
         }
         else if constexpr(std::is_same_v<T, Relations>){
@@ -50,6 +50,8 @@ std::string tagToString(const ASTTag& tag){
                 case ExpressionType::LESSER_EQUAL: return "SMALLER EQUAL";
                 case ExpressionType::AND: return "AND";
                 case ExpressionType::OR: return "OR";
+                case ExpressionType::NOT_NULL: return "NOT_NULL";
+                case ExpressionType::_NULL: return "NULL";
             }
         }
         else if constexpr(std::is_same_v<T, ValueType>){
@@ -79,7 +81,16 @@ std::string tagToString(const ASTTag& tag){
                 case InternalNode::QUALIFIER: return "QUALIFIER";
             }
         }
-        
+        else if constexpr(std::is_same_v<T, Constraints>){
+            switch(t){
+                // To Make it future Proof and modular kept it switch even though only One option of InternalNode is present
+                case Constraints::PRIMARY_KEY: return "PRIMARY_KEY";
+                case Constraints::FOREIGN_KEY: return "FOREIGN_KEY";
+                case Constraints::UNIQUE: return "UNIQUE";
+                case Constraints::IF_EXISTS: return "IF_EXISTS";
+                case Constraints::IF_NOT_EXISTS: return "IF_NOT_EXISTS";
+            }
+        }
     }, tag);
 }
 

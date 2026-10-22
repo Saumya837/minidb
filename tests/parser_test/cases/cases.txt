@@ -628,7 +628,7 @@ Drop
 ### q37_drop_error_cases_1
 DROP INDEX EMP_ID ON;
 --- error
-Syntax error: at or near ";", expected an identifier
+Syntax error: at or near ";", expected a table name
 
 ### q37_drop_error_cases_2
 DROP INDEX ON EMPLOYEE;
@@ -643,12 +643,12 @@ Syntax error: at or near "e", expected ';'
 ### q37_drop_error_cases_4
 DROP TABLE IF t;
 --- error
-Syntax error: at or near "IF", expected an identifier
+Syntax error: at or near "IF", expected a table name
 
 ### q37_drop_error_cases_5
 DROP TABLE IF EXISTS;
 --- error
-Syntax error: at or near ";", expected an identifier
+Syntax error: at or near ";", expected a table name
 
 ### q37_drop_error_cases_6
 DROP;
@@ -758,7 +758,7 @@ Syntax error: at or near ")", expected a number or string
 ### q41_error_routing_11
 CREATE TABLE t (a);
 --- error
-Syntax error: at or near "CREATE", CREATE is not supported yet
+Syntax error: at or near ")", expected a type (INT, TEXT or VARCHAR)
 
 ### q41_error_routing_12
 SELECT a FROM employees e.salary;
@@ -1011,5 +1011,129 @@ DELETE FROM a LEFT JOIN b ON a.id = b.id WHERE a.id = 1;
 --- error
 Syntax error: at or near "LEFT", expected ';'
 
+### q66_create_single_column
+CREATE TABLE t (id INT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
 
+### q67_create_multi_column
+CREATE TABLE users (id INT, name TEXT, age INT);
+--- expect
+Create
+  TABLE: users
+  COLUMN: id
+    TYPE: INT
+  COLUMN: name
+    TYPE: TEXT
+  COLUMN: age
+    TYPE: INT
 
+### q68_create_varchar
+CREATE TABLE t (name VARCHAR(20));
+--- expect
+Create
+  TABLE: t
+  COLUMN: name
+    TYPE: VARCHAR
+      LITERAL: 20
+
+### q69_create_primary_key
+CREATE TABLE t (id INT PRIMARY KEY);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    PRIMARY_KEY
+
+### q70_create_not_null
+CREATE TABLE t (name TEXT NOT NULL);
+--- expect
+Create
+  TABLE: t
+  COLUMN: name
+    TYPE: TEXT
+    NOT_NULL
+
+### q71_create_multiple_constraints
+CREATE TABLE t (id INT PRIMARY KEY NOT NULL);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    PRIMARY_KEY
+    NOT_NULL
+
+### q72_create_if_not_exists
+CREATE TABLE IF NOT EXISTS t (id INT);
+--- expect
+Create
+  IF_NOT_EXISTS
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+
+### q73_create_multiline
+CREATE TABLE t (
+  id INT PRIMARY KEY,
+  name VARCHAR(20) NOT NULL
+);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    PRIMARY_KEY
+  COLUMN: name
+    TYPE: VARCHAR
+      LITERAL: 20
+    NOT_NULL
+
+### q74_create_no_columns
+CREATE TABLE t ();
+--- error
+Syntax error: at or near ")", expected a column name
+
+### q75_create_missing_type
+CREATE TABLE t (id);
+--- error
+Syntax error: at or near ")", expected a type (INT, TEXT or VARCHAR)
+
+### q76_create_trailing_comma
+CREATE TABLE t (id INT,);
+--- error
+Syntax error: at or near ")", expected a column name
+
+### q77_create_missing_paren
+CREATE TABLE t id INT;
+--- error
+Syntax error: at or near "id", expected '('
+
+### q78_create_unknown_type
+CREATE TABLE t (id FLOAT);
+--- error
+Syntax error: at or near "FLOAT", expected a type (INT, TEXT or VARCHAR)
+
+### q79_create_varchar_no_length
+CREATE TABLE t (name VARCHAR);
+--- error
+Syntax error: at or near ")", expected '('
+
+### q80_create_primary_without_key
+CREATE TABLE t (id INT PRIMARY);
+--- error
+Syntax error: at or near ")", expected KEY
+
+### q81_create_not_without_null
+CREATE TABLE t (id INT NOT);
+--- error
+Syntax error: at or near ")", expected NULL
+
+### q82_create_missing_name
+CREATE TABLE (id INT);
+--- error
+Syntax error: at or near "(", expected a table name

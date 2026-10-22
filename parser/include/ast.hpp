@@ -10,7 +10,7 @@ enum class StatementType {
 };
 
 enum class Clauses{
-    DISTINCT, FROM, IF_EXISTS, WHERE, GROUP_BY, ORDER_BY, HAVING, LIMIT, SET
+    DISTINCT, FROM, WHERE, GROUP_BY, ORDER_BY, HAVING, LIMIT, SET, TYPE
 };
 
 enum class Relations{
@@ -18,7 +18,7 @@ enum class Relations{
 };
 
 enum class ExpressionType {
-    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR
+    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR, NOT_NULL, _NULL
 };
 
 enum class InternalNode {
@@ -33,7 +33,11 @@ enum class OrderDirection {
     ASC, DESC
 };
 
-using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType, OrderDirection, InternalNode>;
+enum class Constraints{
+    PRIMARY_KEY, FOREIGN_KEY, UNIQUE, IF_EXISTS, IF_NOT_EXISTS
+};
+
+using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType, OrderDirection, InternalNode, Constraints >;
 struct ASTNode {
     ASTTag type;
     std::string value;

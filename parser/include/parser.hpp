@@ -13,7 +13,10 @@ std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token>& tokens, 
 std::unique_ptr<ASTNode> parseDeleteStatement(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseDropStatement(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseUpdateStatement(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, size_t& pos);
 
+std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size_t& pos);
+std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t& pos);
 
 std::unique_ptr<ASTNode> parseValueTuple(const std::vector<Token>& tokens, size_t& pos);
 std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t& pos, bool allow_star = true);

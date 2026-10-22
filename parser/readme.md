@@ -694,10 +694,17 @@ Delete
         └─> LITERAL: 5
 ```
 
-- **Target is a `relation`**, not a bare `IDENTIFIER`: `WHERE` can refer
-  to the table by alias (`DELETE FROM employees e WHERE e.id = 5`), so
-  the alias must be consumable. Contrast `INSERT`, whose target is a
-  plain `IDENTIFIER` because nothing after it uses an alias.
+- **Target is a `relation` with an optional alias**, not a bare
+  `IDENTIFIER`: `WHERE` can refer to the table by alias
+  (`DELETE FROM employees e WHERE e.id = 5`, or with `AS`), so the alias
+  must be consumable. Contrast `INSERT`, whose target is a plain
+  `IDENTIFIER` because nothing after it uses an alias.
+- **Exactly one relation.** `parseDeleteStatement` expects `FROM`, builds
+  the `FROM` node itself and puts a single `parseRelationWithAlias` result
+  in it. It does **not** call `parseFromClause`, whose comma list and
+  `JOIN` loops are for `SELECT`. The tree shape is unchanged. Before this
+  fix `DELETE FROM a, b;` and `DELETE FROM a JOIN b ON ...;` parsed
+  without error.
 - **`FROM` wrapper kept** around the target, matching `SELECT`'s tree so
   later phases resolve the table the same way for both statements.
 - `WHERE` is optional and reuses `parseWhereClause` unchanged.
@@ -708,7 +715,19 @@ Verified errors:
 ```
 DELETE employees WHERE id = 5;
 Error: Syntax error: at or near "employees", expected FROM
+
+DELETE FROM a, b;
+Error: Syntax error: at or near ",", expected ';'
+
+DELETE FROM a JOIN b ON a.id = b.id;
+Error: Syntax error: at or near "JOIN", expected ';'
+
+DELETE FROM a LEFT JOIN b ON a.id = b.id WHERE a.id = 1;
+Error: Syntax error: at or near "LEFT", expected ';'
 ```
+The comma and join forms get the generic `expected ';'` on purpose: the
+relation parse ends cleanly and the next token is simply not what the
+statement allows, the same message as any other trailing junk.
 The statement must end in `;` — `parseDeleteStatement` calls
 `expect(SEMICOLON)` after the optional `WHERE`, so trailing junk is caught:
 ```
@@ -1151,38 +1170,100 @@ values yet, so changing the tree shape later costs more. If done: at most
 one dot (`db.schema.table` is a separate decision), and reuse the dot
 validation in `parseQualifier` rather than copying it.
 
-### `CREATE TABLE` (design — not implemented yet)
+### `CREATE TABLE`
 
-Stage 1, the grammar the new keywords were added for:
 ```
-CreateStat := CREATE TABLE (IF NOT EXISTS)? IDENTIFIER
-              LPAREN column_def (COMMA column_def)* RPAREN SEMICOLON
-column_def := IDENTIFIER type constraint*
-type       := TYPE_TOKEN (LPAREN NUMBER (COMMA NUMBER)? RPAREN)?
-constraint := PRIMARY KEY | NOT NULL | NULL | UNIQUE
-            | DEFAULT literal | AUTO_INCREMENT
+CreateStat   := CREATE create_target SEMICOLON
+create_target:= TABLE (IF NOT EXISTS)? relation
+                LPAREN column_def (COMMA column_def)* RPAREN
+column_def   := IDENTIFIER type constraint*
+type         := INT | TEXT | VARCHAR LPAREN NUMBER RPAREN
+constraint   := PRIMARY KEY | NOT NULL
 ```
 ```
-CREATE TABLE IF NOT EXISTS t (
-  id INT PRIMARY KEY,
-  name VARCHAR(50) NOT NULL,
-  price DECIMAL(10,2) DEFAULT 0
-);
+SQL> CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name VARCHAR(20) NOT NULL);
+Create
+├─> IF_NOT_EXISTS
+├─> TABLE: users
+├─> COLUMN_DEF: id
+│   ├─> TYPE: INT
+│   └─> PRIMARY_KEY
+└─> COLUMN_DEF: name
+    ├─> TYPE: VARCHAR
+    │   └─> LITERAL: 20
+    └─> NOT_NULL
 ```
-Expected shape of the work:
-- **`Clauses::IF_NOT_EXISTS`**, a childless marker like `IF_EXISTS`: its
-  presence changes what the executor must do.
-- **A column-definition wrapper** (`InternalNode::COLUMN_DEF`) holding
-  the name, the type and a variable number of constraints, for the same
-  reason `ORDER_ITEM` exists: same-shaped siblings would otherwise
-  collide.
-- **A type node** carrying the name as written (`INT` vs `INTEGER` is
-  preserved) with the optional size/precision as children or value.
-- **Constraints as marker nodes** (`PRIMARY_KEY`, `NOT_NULL`, `UNIQUE`,
-  ...), `DEFAULT` carrying its literal.
-- **Stage 2:** table-level constraints (`CONSTRAINT name ...`,
-  `FOREIGN KEY ... REFERENCES ...`, `CHECK (cond)` reusing `or_expr`,
-  `ON DELETE CASCADE | RESTRICT | SET NULL`), then `CREATE INDEX`.
+
+**Tree decisions**
+- **`COLUMN_DEF`, not `COLUMN`.** `COLUMN` already means a column
+  *reference* in an expression. A definition holds a name, a type and
+  constraints, and a different tag stops the binder treating the two as
+  the same thing.
+- **`IF_NOT_EXISTS` is the first child**, a childless marker mirroring
+  `IF_EXISTS` under `Drop`.
+- **`TYPE` carries the type name as its value**; `VARCHAR`'s length is a
+  `LITERAL` child, reusing `parseLiteral`.
+- **Constraints are childless markers** (`PRIMARY_KEY`, `NOT_NULL`) in
+  the order written, like `DISTINCT` under `Select`.
+- **Parentheses and commas produce no nodes**; the `Create` node's
+  children are just the optional marker, the table and the columns.
+
+**Function layout**
+- `parseCreateStatement` consumes `CREATE`, dispatches on the next token
+  with an `if / else if` chain, ends with an `else` that throws, and
+  expects the `;`. Today the chain has one branch, `TABLE`. It is a
+  dispatcher so `MATERIALIZED VIEW` and `FUNCTION` can be added as
+  further branches without touching `parseCreateTable`.
+- `parseCreateTable` consumes `TABLE`, the optional `IF NOT EXISTS`, the
+  relation (through `parseRelation`, with no alias), and the column list.
+- `parseColumnDef` parses **one column only** and never touches the
+  parentheses or commas, which belong to the enclosing rule (the
+  node-builder rule). The list is a `do ... while (check(COMMA) ...)`
+  loop, so `()` and `(id INT,)` both fail inside `parseColumnDef` with
+  "expected a column name" without any special case.
+
+**Verified errors** (all covered by cases)
+```
+CREATE TABLE t ();               at or near ")", expected a column name
+CREATE TABLE t (id);             at or near ")", expected a type (INT, TEXT or VARCHAR)
+CREATE TABLE t (id INT,);        at or near ")", expected a column name
+CREATE TABLE t id INT;           at or near "id", expected '('
+CREATE TABLE t (id FLOAT);       at or near "FLOAT", expected a type (INT, TEXT or VARCHAR)
+CREATE TABLE t (name VARCHAR);   at or near ")", expected '('
+CREATE TABLE t (id INT PRIMARY); at or near ")", expected KEY
+CREATE TABLE t (id INT NOT);     at or near ")", expected NULL
+CREATE TABLE (id INT);           at or near "(", expected a table name
+```
+`FLOAT` is a reserved word in the lexer but not yet a supported type, so
+it reports the *type* error naming `FLOAT` rather than a generic
+`expected ')'`.
+
+**Bugs the suite caught while building it**
+- The dispatch condition was written as `if (!check(TABLE))`, so valid
+  input fell through (or into the error `else`) and the tree came back
+  null. Symptom: every `CREATE TABLE` case failed with `at or near
+  "TABLE", expected TABLE`.
+- `expect()` consumes, so a `pos++` after `expect(IDENTIFIER)` skipped
+  the type token.
+- A comma-loop condition of `!check(RPAREN) && pos++` swallowed any
+  token between columns; it must test for `COMMA`.
+- Changing `parseRelation`'s message to "expected a table name" broke an
+  unrelated `DROP TABLE IF t;` case. That one is the suite working as
+  intended: a wording change in a shared helper is visible everywhere it
+  is reused.
+
+**Not yet done (stage 2)**
+- More types (`INTEGER`, `BIGINT`, `DECIMAL(p,s)`, `BOOLEAN`, `DATE`, ...)
+  and the constraints `UNIQUE`, `DEFAULT literal`, `AUTO_INCREMENT`. The
+  keywords exist; each is one branch plus cases.
+- Table-level constraints (`CONSTRAINT name ...`, `FOREIGN KEY ...
+  REFERENCES ...`, `CHECK (cond)` reusing `or_expr`,
+  `ON DELETE CASCADE | RESTRICT | SET NULL`).
+- `CREATE INDEX`, `CREATE MATERIALIZED VIEW`, `CREATE FUNCTION`.
+- `IF` handling is stricter than `DROP`'s: `CREATE TABLE IF t (...)`
+  commits on `IF` alone and reports `expected NOT` at `t`, while
+  `DROP TABLE IF t;` looks ahead for `IF EXISTS` and reports at `IF`.
+  Decide on one behaviour and add a case first.
 
 ### Design lessons from this stage
 
@@ -1411,7 +1492,7 @@ files.)
 ### Grammar
 
 ```
-Statement        := SelectStat | InsertStat | UpdateStat | DeleteStat | DropStat
+Statement        := SelectStat | InsertStat | UpdateStat | DeleteStat | DropStat | CreateStat
 
 InsertStat       := INSERT INTO IDENTIFIER (LPAREN plain_column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
 value_tuple      := LPAREN value_list RPAREN
@@ -1420,6 +1501,10 @@ literal          := NUMBER | STRING
 UpdateStat       := UPDATE relation SET assignment (COMMA assignment)* where_clause? SEMICOLON
 assignment       := column EQUALS operand        # column: no alias; qualifier allowed
 DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
+CreateStat       := CREATE TABLE (IF NOT EXISTS)? relation LPAREN column_def (COMMA column_def)* RPAREN SEMICOLON
+column_def       := IDENTIFIER type constraint*
+type             := INT | TEXT | VARCHAR LPAREN NUMBER RPAREN
+constraint       := PRIMARY KEY | NOT NULL
 DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
                   | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
 index_list       := index (COMMA index)*
@@ -1606,7 +1691,7 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
     else if (check(tokens, pos, TokenType::UPDATE))  return parseUpdateStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::DELETE))  return parseDeleteStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::DROP))    return parseDropStatement(tokens, pos);
-    else if (check(tokens, pos, TokenType::CREATE))  parseError(tokens, pos, "CREATE is not supported yet");
+    else if (check(tokens, pos, TokenType::CREATE))  return parseCreateStatement(tokens, pos);
     else if (check(tokens, pos, TokenType::ALTER))   parseError(tokens, pos, "ALTER is not supported yet");
     else parseError(tokens, pos, "expected SELECT, INSERT, UPDATE, DELETE or DROP");
 }
@@ -1621,9 +1706,10 @@ won't catch `SELECT FROM;` (missing columns) — `parseSelectStatement` /
 `parseProjectionList` will, when they expect an identifier and find
 `FROM` instead.
 
-`CREATE` and `ALTER` are recognised but not implemented; they fail with a
-proper syntax error at the keyword rather than falling through to
-"unknown statement".
+`CREATE` routes to `parseCreateStatement`, which dispatches again on the
+object kind (`TABLE` today). `ALTER` is recognised but not implemented;
+it fails with a proper syntax error at the keyword rather than falling
+through to "unknown statement".
 
 `parseGroupByClause` calls `parseColumnList()` directly rather than
 duplicating comma-separated-identifier logic, since `GROUP BY
@@ -1693,8 +1779,8 @@ while (true) {
       (incl. `(`, `)`, `*`)
 - [x] `ASTTag`, `ASTNode`, `printAST()`
 - [x] `check()` / `expect()` / `parseError()` helpers
-- [x] `parseStatement()` dispatcher (SELECT, INSERT, UPDATE, DELETE, DROP;
-      CREATE/ALTER fail cleanly)
+- [x] `parseStatement()` dispatcher (SELECT, INSERT, UPDATE, DELETE, DROP,
+      CREATE; ALTER fails cleanly)
 - [x] `parseSelectStatement()` — full clause set: `DISTINCT`, projection
       list, `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`
 - [x] `parseColumnList()` / `parseColumn(allow_alias)`
@@ -1719,36 +1805,36 @@ while (true) {
 - [x] Qualified columns as `COLUMN` + `QUALIFIER` child
       (`parseQualifier(allow_star)`)
 - [x] Parenthesized expressions
-- [x] `parseDeleteStatement()`, `parseUpdateStatement()` /
-      `parseAssignment()`
+- [x] `parseDeleteStatement()` (single relation with optional alias),
+      `parseUpdateStatement()` / `parseAssignment()`
 - [x] `parseDropStatement()` / `parseIndex()` — `DROP TABLE`, `DROP INDEX
       a, b ON t`, `IF EXISTS`
 - [x] All syntax errors through `parseError` (one `runtime_error` in the
       parser)
 - [x] Keywords for `CREATE TABLE`: constraint words and data types in
       `TokenType` (`NULL_KW`, no `ISNULL`/`NOTNULL`/`ELSE`)
+- [x] `parseCreateStatement()` / `parseCreateTable()` /
+      `parseColumnDef()` — `CREATE TABLE` with `IF NOT EXISTS`, `INT`,
+      `TEXT`, `VARCHAR(n)`, `PRIMARY KEY`, `NOT NULL`
+- [x] `DELETE` restricted to one relation; comma lists and joins rejected
 - [x] Whitespace in the lexer: any `isspace` character, not only `' '`
       (multi-line queries)
 - [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
       failure log, run statistics, `test_script` entry point, CMake
-      targets; 80 cases, all passing (see **Automated tests**)
+      targets; 105 cases, all passing (see **Automated tests**)
 - [x] `ctest` wiring: `enable_testing()`, `add_test(parser_cases)`, and a
       `TEST_DIR` compile definition for the default paths
 - [x] Test run triggered by `git commit` (post-commit hook running
       `tests/scripts/run_tests_if_changed.sh`)
-- [x] Optional `FROM` in `SELECT`: grammar and design are updated (see
-      **`SELECT` without `FROM`**);
-- [x] Restrict `DELETE` to a single relation (currently a `relation`
-      via `parseFromClause`)
 
 **Not yet done:**
-- [ ] `CREATE TABLE` — keywords are in; grammar, `IF_NOT_EXISTS`,
-      column-definition wrapper and type/constraint nodes to build
-      (see **`CREATE TABLE`** design). Then `CREATE INDEX`, `ALTER`,
-      `DROP` of other objects
+- [ ] `CREATE TABLE` stage 2: more types, `UNIQUE`/`DEFAULT`/
+      `AUTO_INCREMENT`, table-level constraints (see **`CREATE TABLE`**).
+      Then `CREATE INDEX`, `CREATE MATERIALIZED VIEW`, `CREATE FUNCTION`,
+      `ALTER`, `DROP` of other objects
 - [ ] Finish the keyword mappers for the new words (`keywordTable`,
       `tokenTypeToString`) and the keyword-coverage lexer test
-- [ ] Settle node label naming (the 80 cases encode today's labels; see
+- [ ] Settle node label naming (the 105 cases encode today's labels; see
       **Open decision: node labels**)
 - [ ] A `pre-push` hook that runs `ctest` and blocks a push on failures
 - [ ] `isTypeToken` helper
@@ -1757,9 +1843,14 @@ while (true) {
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
 - [ ] Schema qualifier on relation names (open decision above)
+- [ ] Optional `FROM` in `SELECT`: grammar and design are updated (see
+      **`SELECT` without `FROM`**); `parseSelectStatement` change and its
+      cases still to do
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
-- [ ] `DROP IF` check on `IF` alone, then `expect(EXISTS)`, for a better message
+- [ ] Make `IF` handling consistent: `DROP TABLE IF t;` errors at `IF`
+      (full `IF EXISTS` lookahead), `CREATE TABLE IF t (...)` errors at
+      `t` with `expected NOT`. Pick one and add a case
 - [ ] Trailing-token check after the terminating `;`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
       (currently: caller runs `tokenize` then `parseStatement`
@@ -1776,7 +1867,7 @@ while (true) {
 Until now every query was checked by hand in the REPL. The regression
 suite replaces that: a file of cases, each a query with its expected
 result, run in one command, with failures logged instead of stopping the
-run. **Status: built end to end; 80 cases, all passing.**
+run. **Status: built end to end; 105 cases, all passing.**
 
 ### Design (from first principles)
 
@@ -1871,7 +1962,7 @@ tests/
     ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
     ├── test_script.cpp           entry point: load cases, loop, summary, exit code
     ├── cases/
-    │   └── cases.txt             80 cases (trees and errors)
+    │   └── cases.txt             105 cases (trees and errors)
     ├── harness/
     │   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
     │   │                         failure_log.hpp  statistics.hpp  time_util.hpp
@@ -2006,7 +2097,7 @@ them before writing many cases: `GREATER_EQUAL` prints as
 `GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
 LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
 clause labels use spaces (`GROUP BY`) while others use underscores
-(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 80 of them now.
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 105 of them now.
 
 ### Build order
 
@@ -2019,7 +2110,7 @@ clause labels use spaces (`GROUP BY`) while others use underscores
    `add_test`; `ctest --test-dir build --output-on-failure` runs the
    suite.
 6. [x] Reference queries moved in as cases and reviewed; coverage gaps
-   closed with further cases (80 in total).
+   closed with further cases (105 in total).
 
 **What the suite has caught**
 
@@ -2782,7 +2873,7 @@ DROP INDEX idx;                       -- at or near ";", expected ON
 DROP INDEX ;                          -- at or near ";", expected an identifier
 INSERT INTO t VALUES (a);             -- at or near "a", expected a number or string
 INSERT INTO t VALUES (1, );           -- at or near ")", expected a number or string
-CREATE TABLE t (a);                   -- at or near "CREATE", CREATE is not supported yet
+CREATE TABLE t (id);                 -- at or near ")", expected a type (INT, TEXT or VARCHAR)
 SELECT a FROM employees e.salary;     -- at or near "e.salary", alias cannot contain '.'
 SELECT a FROM emp.*;                  -- at or near "emp.*", relation name cannot contain '*'
 DELETE FROM t WHERE id = 1 foo;       -- at or near "foo", expected ';'

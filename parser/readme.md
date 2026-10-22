@@ -1736,6 +1736,10 @@ while (true) {
       `TEST_DIR` compile definition for the default paths
 - [x] Test run triggered by `git commit` (post-commit hook running
       `tests/scripts/run_tests_if_changed.sh`)
+- [x] Optional `FROM` in `SELECT`: grammar and design are updated (see
+      **`SELECT` without `FROM`**);
+- [x] Restrict `DELETE` to a single relation (currently a `relation`
+      via `parseFromClause`)
 
 **Not yet done:**
 - [ ] `CREATE TABLE` — keywords are in; grammar, `IF_NOT_EXISTS`,
@@ -1753,13 +1757,8 @@ while (true) {
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
 - [ ] Schema qualifier on relation names (open decision above)
-- [ ] Optional `FROM` in `SELECT`: grammar and design are updated (see
-      **`SELECT` without `FROM`**); `parseSelectStatement` change and its
-      cases still to do
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
-- [ ] Restrict `DELETE` to a single relation (currently a `relation`
-      via `parseFromClause`)
 - [ ] `DROP IF` check on `IF` alone, then `expect(EXISTS)`, for a better message
 - [ ] Trailing-token check after the terminating `;`
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract

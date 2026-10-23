@@ -1137,3 +1137,59 @@ Syntax error: at or near ")", expected NULL
 CREATE TABLE (id INT);
 --- error
 Syntax error: at or near "(", expected a table name
+
+### q83_schema_basic
+SELECT a FROM hr.employees;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      SCHEMA: hr
+  COLUMN: a
+
+### q84_schema_with_alias
+SELECT e.a FROM hr.employees e;
+--- expect
+Select
+  FROM
+    TABLE: employees
+      SCHEMA: hr
+      ALIAS: e
+  COLUMN: a
+    QUALIFIER: e
+
+### q85_schema_delete
+DELETE FROM hr.employees WHERE id = 1;
+--- expect
+Delete
+  FROM
+    TABLE: employees
+      SCHEMA: hr
+  WHERE
+    EQUALS
+      COLUMN: id
+      LITERAL: 1
+
+### q86_schema_create
+CREATE TABLE hr.employees (id INT);
+--- expect
+Create
+  TABLE: employees
+    SCHEMA: hr
+  COLUMN: id
+    TYPE: INT
+
+### q87_schema_too_many_parts
+SELECT a FROM db.hr.employees;
+--- error
+Syntax error: at or near "db.hr.employees", invalid relation name
+
+### q88_schema_trailing_dot
+SELECT a FROM hr.;
+--- error
+Syntax error: at or near "hr.", invalid relation name
+
+### q89_schema_leading_dot
+SELECT a FROM .employees;
+--- error
+Lexer Error: Unexpected symbol '.' at position 14

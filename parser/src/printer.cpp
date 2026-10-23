@@ -73,17 +73,16 @@ std::string tagToString(const ASTTag& tag){
         }
         else if constexpr(std::is_same_v<T, InternalNode>){
             switch(t){
-                // To Make it future Proof and modular kept it switch even though only One option of InternalNode is present
                 case InternalNode::ORDER_ITEM: return "ORDER_ITEM";
                 case InternalNode::VALUE_TUPLE: return "VALUE_TUPLE";
                 case InternalNode::ARG_LIST: return "ARG_LIST";
                 case InternalNode::INDEX_LIST: return "INDEX_LIST";
                 case InternalNode::QUALIFIER: return "QUALIFIER";
+                case InternalNode::SCHEMA: return "SCHEMA";
             }
         }
         else if constexpr(std::is_same_v<T, Constraints>){
             switch(t){
-                // To Make it future Proof and modular kept it switch even though only One option of InternalNode is present
                 case Constraints::PRIMARY_KEY: return "PRIMARY_KEY";
                 case Constraints::FOREIGN_KEY: return "FOREIGN_KEY";
                 case Constraints::UNIQUE: return "UNIQUE";

@@ -47,21 +47,45 @@ entry point, so callers never need to know lexing and parsing are separate.
 
 ### Tag types
 
-The AST node "kind" is represented as one of seven closed enums, combined
+The AST node "kind" is represented as one of eight closed enums, combined
 into a `std::variant`:
 
 ```cpp
 enum class StatementType  { SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP };
-enum class Clauses        { FROM, WHERE, GROUP_BY, HAVING, ORDER_BY, LIMIT, IF_EXISTS, DISTINCT, SET };
+enum class Clauses        { DISTINCT, FROM, WHERE, GROUP_BY, ORDER_BY, HAVING, LIMIT, SET, TYPE };
 enum class Relations      { TABLE, JOIN, LEFT_JOIN, RIGHT_JOIN };
-enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR };
-enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, FUNCTION, STAR, INDEX };
+enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR,
+                            NOT_NULL, _NULL };
+enum class InternalNode   { VALUE_TUPLE, ORDER_ITEM, ARG_LIST, QUALIFIER, INDEX_LIST, SCHEMA };
+enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION, INDEX };
 enum class OrderDirection { ASC, DESC };
-enum class InternalNode   { ORDER_ITEM, VALUE_TUPLE, ARG_LIST, QUALIFIER, INDEX_LIST };
+enum class Constraints    { PRIMARY_KEY, FOREIGN_KEY, UNIQUE, IF_EXISTS, IF_NOT_EXISTS };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType,
-                             ValueType, OrderDirection, InternalNode>;
+                             ValueType, OrderDirection, InternalNode, Constraints>;
 ```
+
+**Where the newer tags live**
+- `Constraints` is the eighth enum, added for `CREATE TABLE`: the
+  childless markers that say *how* an object behaves rather than what it
+  is. `IF_EXISTS` moved here from `Clauses`; `IF_NOT_EXISTS` and
+  `PRIMARY_KEY` are new. `FOREIGN_KEY` and `UNIQUE` are declared for
+  stage 2 and not produced yet.
+- `Clauses::TYPE` is the column's type node (`TYPE: INT`, with a
+  `LITERAL` child for `VARCHAR(n)`).
+- `ExpressionType::NOT_NULL` is the `NOT NULL` column constraint, and
+  `_NULL` is declared for `NULL`/`IS NULL` in expressions, not produced
+  yet.
+- `InternalNode::SCHEMA` is the schema prefix of a relation name
+  (`hr.employees` gives `TABLE: employees` with a `SCHEMA: hr` child).
+  `QUALIFIER` stays on columns.
+
+**Open decision:** the `CREATE TABLE` markers are spread over three enums
+(`PRIMARY_KEY` in `Constraints`, `NOT_NULL` in `ExpressionType`, `TYPE`
+in `Clauses`). Nothing breaks, because `tagToString` covers all of them,
+but a reader looking for "the constraints" finds only some. Moving
+`NOT_NULL` into `Constraints` is the obvious cleanup, and cheap now
+because the enum name is not part of any case file.
 
 We deliberately use a **flat variant of closed enums**, not a generic
 `template<EnumType T>` — the AST only ever produces nodes of these kinds,
@@ -797,7 +821,7 @@ Drop
 │   └─> INDEX: b
 └─> TABLE: t
 ```
-- **A marker node, `Clauses::IF_EXISTS`, no value.** Same test as every
+- **A marker node, `Constraints::IF_EXISTS`, no value.** Same test as every
   other symbol: its identity matters downstream (the executor must not
   error when the object is missing), unlike `AS` or `;`.
 - **It is the first child of `Drop`**, so the tree reads like the SQL.
@@ -1071,15 +1095,14 @@ Select
   tag. The binder will be the first such consumer.
 - **Entry:** `FROM` is peeked like every other optional clause (see the
   flow diagram below); once seen, `parseFromClause` throws its own precise
-  errors, so `SELECT 1 FROM;` still fails at `";"` on the missing
-  relation name.
+  errors, so `SELECT 1 FROM;` still fails at `";"` with `expected a
+  table name`.
 - **Error messages change for one case.** `SELECT a;` used to fail with
   `expected FROM`; it now parses. A stray token after the projection list
   is now reported as `expected ';'` (the first thing that can follow)
   rather than `expected FROM`.
 
-**Cases to add with the parser change** (trees derived from the rules
-above; check each against the parser before accepting it):
+**Cases** (all in the suite):
 ```
 SELECT 1;                          Select / LITERAL: 1
 SELECT 1 AS one, 'x' AS tag;       Select / LITERAL: 1 / ALIAS: one / LITERAL: x / ALIAS: tag
@@ -1087,7 +1110,7 @@ SELECT DISTINCT 1;                 Select / DISTINCT / LITERAL: 1
 SELECT 1 WHERE 1 = 1;              Select / LITERAL: 1 / WHERE / EQUALS / LITERAL: 1 / LITERAL: 1
 SELECT name;                       Select / COLUMN: name        (binder rejects later)
 SELECT;                            error: at or near ";", expected a value (column, literal or function call)
-SELECT 1 FROM;                     error: at or near ";", expected an identifier
+SELECT 1 FROM;                     error: at or near ";", expected a table name
 ```
 (each tree one node per line, two spaces per depth, in the case file).
 
@@ -1151,24 +1174,40 @@ then fold each `OP operand` pair into the running result.
 
 ### Relation names
 
-A relation name is **one `IDENTIFIER` token, stored verbatim**. It may
-contain a `.` (so `schema.table` is accepted and kept as the string
-`schema.table`) but never a `*`:
+A relation name is **one `IDENTIFIER` token** that may contain a single
+`.`, never a `*`. `parseRelation` splits it into a `TABLE` node holding
+the table name, with a `SCHEMA` child for the part before the dot:
 ```
-SELECT a FROM emp.*;
-Syntax error: at or near "emp.*", relation name cannot contain '*'
+SQL> SELECT a FROM hr.employees e;
+Select
+├─> FROM
+│   └─> TABLE: employees
+│       ├─> SCHEMA: hr
+│       └─> ALIAS: e
+└─> COLUMN: a
 ```
-Whether `emp.name` names a real schema and table is **not a parser
-question**. The binder will split the name on `.` and resolve both parts
-against the catalog, the same convention it uses for qualified columns.
+- **`SCHEMA`, not `QUALIFIER`.** `QUALIFIER` stays on columns; a table's
+  prefix is a schema, so it gets its own tag and the binder never has to
+  guess which kind of prefix it is looking at. `SCHEMA` comes before
+  `ALIAS` when both are present.
+- **At most one dot.** `db.hr.employees` is a separate decision (a
+  catalog/database level); it is rejected rather than guessed at.
+- **Everything built on `parseRelation` gets it**: `FROM`, `JOIN`,
+  `UPDATE`, `DELETE`, `CREATE TABLE`.
+- The dot validation is shared with `parseQualifier` rather than copied.
+- Whether `hr` is a real schema is **not a parser question**: the binder
+  resolves `SCHEMA` + `TABLE` against the catalog.
 
-**Open decision:** introduce a schema qualifier in the tree
-(`TABLE: employees` with a `QUALIFIER: hr` child, mirroring qualified
-columns) or keep the verbatim string until the catalog has schemas. The
-case for doing it before the binder exists is that no code reads relation
-values yet, so changing the tree shape later costs more. If done: at most
-one dot (`db.schema.table` is a separate decision), and reuse the dot
-validation in `parseQualifier` rather than copying it.
+Errors (all covered by cases):
+```
+SELECT a FROM emp.*;             relation name cannot contain '*'
+SELECT a FROM db.hr.employees;   relation name cannot contain more than one '.'
+SELECT a FROM hr.;               relation name cannot end with '.'
+SELECT a FROM .employees;        lexer error: the lexer rejects a leading '.'
+```
+The leading-dot case never reaches the parser, because the lexer cannot
+turn a bare `.` into a token. The suite pins that behaviour; a `DOT`
+token would let the parser report it instead (later).
 
 ### `CREATE TABLE`
 
@@ -1185,20 +1224,21 @@ SQL> CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name VARCHAR(20) NOT 
 Create
 ├─> IF_NOT_EXISTS
 ├─> TABLE: users
-├─> COLUMN_DEF: id
+├─> COLUMN: id
 │   ├─> TYPE: INT
 │   └─> PRIMARY_KEY
-└─> COLUMN_DEF: name
+└─> COLUMN: name
     ├─> TYPE: VARCHAR
     │   └─> LITERAL: 20
     └─> NOT_NULL
 ```
 
 **Tree decisions**
-- **`COLUMN_DEF`, not `COLUMN`.** `COLUMN` already means a column
-  *reference* in an expression. A definition holds a name, a type and
-  constraints, and a different tag stops the binder treating the two as
-  the same thing.
+- **A column definition is a `COLUMN` node**, the same tag as a column
+  reference in an expression. The two are told apart by position: a
+  `COLUMN` directly under `Create` is a definition (it has a `TYPE`
+  child and constraint markers), anywhere else it is a reference. The
+  binder must key on the parent, not on the tag alone.
 - **`IF_NOT_EXISTS` is the first child**, a childless marker mirroring
   `IF_EXISTS` under `Drop`.
 - **`TYPE` carries the type name as its value**; `VARCHAR`'s length is a
@@ -1259,7 +1299,7 @@ it reports the *type* error naming `FLOAT` rather than a generic
 - Table-level constraints (`CONSTRAINT name ...`, `FOREIGN KEY ...
   REFERENCES ...`, `CHECK (cond)` reusing `or_expr`,
   `ON DELETE CASCADE | RESTRICT | SET NULL`).
-- `CREATE INDEX`, `CREATE MATERIALIZED VIEW`, `CREATE FUNCTION`.
+- `CREATE INDEX`.
 - `IF` handling is stricter than `DROP`'s: `CREATE TABLE IF t (...)`
   commits on `IF` alone and reports `expected NOT` at `t`, while
   `DROP TABLE IF t;` looks ahead for `IF EXISTS` and reports at `IF`.
@@ -1529,7 +1569,8 @@ qualified_name    := IDENTIFIER                          # optionally table.colu
 from_clause       := FROM relation (COMMA relation)* joins*   # optional in SelectStat;
                                                               # joins exist only inside it
 joins             := (LEFT | RIGHT)? JOIN relation ON condition
-relation          := IDENTIFIER alias?                   # may contain '.', never '*'
+relation          := IDENTIFIER alias?                   # one token; at most one '.', never '*'
+                                                         # 'schema.table' -> TABLE + SCHEMA child
                                                          # parseRelation builds the node;
                                                          # parseRelationWithAlias adds the alias
                                                          # (FROM, JOIN, UPDATE, DELETE)
@@ -1772,7 +1813,8 @@ while (true) {
 ### Status
 
 **Done:**
-- [x] `TokenType`, `Token`, `keywordTable`
+- [x] `TokenType`, `Token`, `keywordTable`, `tokenTypeToString` — all
+      keywords for `CREATE TABLE` entered in all three places
 - [x] `tokenize()` — whitespace, keywords, identifiers (incl. qualified
       `table.column` and qualified-star `table.*` forms), numbers (incl.
       decimals), string literals, comparison operators, punctuation
@@ -1816,12 +1858,16 @@ while (true) {
 - [x] `parseCreateStatement()` / `parseCreateTable()` /
       `parseColumnDef()` — `CREATE TABLE` with `IF NOT EXISTS`, `INT`,
       `TEXT`, `VARCHAR(n)`, `PRIMARY KEY`, `NOT NULL`
+- [x] Optional `FROM` in `SELECT` (see **`SELECT` without `FROM`**), with
+      its cases
 - [x] `DELETE` restricted to one relation; comma lists and joins rejected
+- [x] Schema-qualified relation names: `hr.employees` becomes `TABLE` with
+      a `SCHEMA` child, with errors for extra, leading and trailing dots
 - [x] Whitespace in the lexer: any `isspace` character, not only `' '`
       (multi-line queries)
 - [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
       failure log, run statistics, `test_script` entry point, CMake
-      targets; 105 cases, all passing (see **Automated tests**)
+      targets; 112 cases, all passing (see **Automated tests**)
 - [x] `ctest` wiring: `enable_testing()`, `add_test(parser_cases)`, and a
       `TEST_DIR` compile definition for the default paths
 - [x] Test run triggered by `git commit` (post-commit hook running
@@ -1830,11 +1876,10 @@ while (true) {
 **Not yet done:**
 - [ ] `CREATE TABLE` stage 2: more types, `UNIQUE`/`DEFAULT`/
       `AUTO_INCREMENT`, table-level constraints (see **`CREATE TABLE`**).
-      Then `CREATE INDEX`, `CREATE MATERIALIZED VIEW`, `CREATE FUNCTION`,
-      `ALTER`, `DROP` of other objects
-- [ ] Finish the keyword mappers for the new words (`keywordTable`,
-      `tokenTypeToString`) and the keyword-coverage lexer test
-- [ ] Settle node label naming (the 105 cases encode today's labels; see
+      Then `CREATE INDEX`
+- [ ] The keyword-coverage lexer test (tokenize every keyword spelling,
+      check none comes back as `IDENTIFIER`)
+- [ ] Settle node label naming (the 112 cases encode today's labels; see
       **Open decision: node labels**)
 - [ ] A `pre-push` hook that runs `ctest` and blocks a push on failures
 - [ ] `isTypeToken` helper
@@ -1842,10 +1887,6 @@ while (true) {
       the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
       `LIKE`, arithmetic (`SET salary = salary + 1000`)
 - [ ] `OFFSET`
-- [ ] Schema qualifier on relation names (open decision above)
-- [ ] Optional `FROM` in `SELECT`: grammar and design are updated (see
-      **`SELECT` without `FROM`**); `parseSelectStatement` change and its
-      cases still to do
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`
 - [ ] Make `IF` handling consistent: `DROP TABLE IF t;` errors at `IF`
@@ -1860,6 +1901,12 @@ while (true) {
       under `SET`, `TABLE` meaning under `DROP INDEX`, relation names, columns
       and `*` in a `SELECT` without `FROM`)
 
+
+**Future stages (deliberately out of scope for now):** `CREATE
+MATERIALIZED VIEW`, `CREATE FUNCTION`, `ALTER`, and `DROP` of objects
+other than tables and indexes. `parseCreateStatement` is a dispatcher so
+each can be added as one more branch without touching `parseCreateTable`.
+
 ---
 
 ## Automated tests
@@ -1867,7 +1914,7 @@ while (true) {
 Until now every query was checked by hand in the REPL. The regression
 suite replaces that: a file of cases, each a query with its expected
 result, run in one command, with failures logged instead of stopping the
-run. **Status: built end to end; 105 cases, all passing.**
+run. **Status: built end to end; 112 cases, all passing.**
 
 ### Design (from first principles)
 
@@ -1962,7 +2009,7 @@ tests/
     ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
     ├── test_script.cpp           entry point: load cases, loop, summary, exit code
     ├── cases/
-    │   └── cases.txt             105 cases (trees and errors)
+    │   └── cases.txt             112 cases (trees and errors)
     ├── harness/
     │   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
     │   │                         failure_log.hpp  statistics.hpp  time_util.hpp
@@ -2097,7 +2144,7 @@ them before writing many cases: `GREATER_EQUAL` prints as
 `GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
 LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
 clause labels use spaces (`GROUP BY`) while others use underscores
-(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 105 of them now.
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 112 of them now.
 
 ### Build order
 
@@ -2110,7 +2157,7 @@ clause labels use spaces (`GROUP BY`) while others use underscores
    `add_test`; `ctest --test-dir build --output-on-failure` runs the
    suite.
 6. [x] Reference queries moved in as cases and reviewed; coverage gaps
-   closed with further cases (105 in total).
+   closed with further cases (112 in total).
 
 **What the suite has caught**
 

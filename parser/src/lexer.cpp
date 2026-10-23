@@ -122,7 +122,7 @@ std::vector<Token> tokenize(const std::string &sql){
         }
 
         else{
-            throw std::runtime_error("Unexpected symbol '" + std::string(1, c) +
+            throw std::runtime_error("Lexer Error: Unexpected symbol '" + std::string(1, c) +
                     "' at position " + std::to_string(pos));
         }
     }

@@ -46,14 +46,12 @@ namespace {
             case TokenType::STAR:           return "'*'";
             case TokenType::ASC:            return "ASC";
             case TokenType::DESC:           return "DESC";
-            // already in the enum, currently missing
             case TokenType::IF:             return "IF";
             case TokenType::EXISTS:         return "EXISTS";
             case TokenType::NOT:            return "NOT";
             case TokenType::IS:             return "IS";
             case TokenType::FUNCTION:       return "FUNCTION";
             case TokenType::NULL_KW:        return "NULL";
-            // constraints
             case TokenType::PRIMARY:        return "PRIMARY";
             case TokenType::KEY:            return "KEY";
             case TokenType::UNIQUE:         return "UNIQUE";
@@ -65,7 +63,6 @@ namespace {
             case TokenType::CASCADE:        return "CASCADE";
             case TokenType::RESTRICT:       return "RESTRICT";
             case TokenType::AUTO_INCREMENT: return "AUTO_INCREMENT";
-            // data types
             case TokenType::INT:            return "INT";
             case TokenType::INTEGER:        return "INTEGER";
             case TokenType::BIGINT:         return "BIGINT";
@@ -102,7 +99,7 @@ namespace {
         return tokens[pos].type == type;
     }
 
-     Token expect(const std::vector<Token> &tokens, size_t& pos, TokenType type){
+    Token expect(const std::vector<Token> &tokens, size_t& pos, TokenType type){
         if (pos >= tokens.size())
             parseError(tokens, pos, "Unexpected End of input, expected token type " + std::to_string(static_cast<int>(type)));
         else if (tokens[pos].type == type){
@@ -146,7 +143,6 @@ std::unique_ptr<ASTNode> parseStatement(const std::vector<Token>& tokens, size_t
         parseError(tokens, pos, "expected SELECT, INSERT, UPDATE, DELETE or DROP"); 
     }   
 }
-
 
 // One column: name, type, constraints. Does not touch the parentheses or commas.
 std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t& pos) {
@@ -227,8 +223,6 @@ std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size
     expect(tokens, pos, TokenType::RPAREN);
     return root;
 }
-
-
 
 std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, size_t& pos){
     expect(tokens, pos, TokenType::CREATE);
@@ -802,6 +796,7 @@ std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens
     return rel;
 }
 
+
 std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
     if (!check(tokens, pos, TokenType::IDENTIFIER)) {
         parseError(tokens, pos, "expected a table name");
@@ -812,9 +807,31 @@ std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t&
         parseError(tokens, pos-1, "relation name cannot contain '*'");
     }
 
+    std::unique_ptr<ASTNode> schema = nullptr;
+    std::string name = idToken.lexeme;
+
+    auto current_token = idToken.lexeme;
+    size_t len = current_token.find('.');
+
+    if (current_token.find('.', len + 1) != std::string::npos ||
+        len == 0 || len == current_token.size() - 1)
+        parseError(tokens, pos - 1, "invalid relation name");                 
+
+    if(current_token.find('.') != std::string::npos){
+        size_t pos_dot = name.find('.');
+        schema = std::make_unique<ASTNode>();
+        schema->type = InternalNode::SCHEMA;
+        schema->value = name.substr(0, pos_dot); 
+        name = name.substr(pos_dot + 1);
+    }
+
     auto relation = std::make_unique<ASTNode>();
     relation->type = Relations::TABLE;
-    relation->value = idToken.lexeme;
+    relation->value = name;
+
+    if (schema){
+        relation->children.push_back(std::move(schema));
+    }
 
     return relation;
 }

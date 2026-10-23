@@ -6,4 +6,4 @@ cmake_install.cmake
 *.o
 commitmsg.txt
 tests/parser_test/logs/failures_*.log
-tests/scripts/run_tests_if_changed.sh
+tests/scripts/run_tests_if_changed.shtests/parser_test/logs/cron.out

@@ -567,12 +567,13 @@ std::unique_ptr<ASTNode> parseLiteral(const std::vector<Token>& tokens, size_t& 
 
 std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t& pos, bool allow_star ){
     const std::string& current_token = tokens[pos].lexeme;
+    size_t idx = pos;
     pos++;
     size_t len = current_token.find('.');
 
     if (current_token.find('.', len + 1) != std::string::npos ||
         len == 0 || len == current_token.size() - 1)
-        parseError(tokens, pos - 1, "malformed qualified name");                   
+        parseError(tokens, idx, "malformed qualified name");                   
     
     auto qualifier = std::make_unique<ASTNode>();
     qualifier->type = InternalNode::QUALIFIER;
@@ -586,7 +587,7 @@ std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t
             return starNode;
         }
         else{
-            parseError(tokens, pos - 1, "star is only allowed in the select list"); 
+            parseError(tokens, idx, "star is only allowed in the select list"); 
         }
     }
     else {
@@ -594,7 +595,6 @@ std::unique_ptr<ASTNode> parseQualifier(const std::vector<Token> &tokens, size_t
         columnNode->type = ValueType::COLUMN;
         columnNode->value = current_token.substr(len + 1);
         columnNode->children.push_back(std::move(qualifier));
-
         return columnNode;
     }
 }
@@ -797,42 +797,52 @@ std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens
 }
 
 
-std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos){
+// Splits "schema.table" held in `name`. If a schema part exists, `name` is
+// reduced to the table part and a SCHEMA node is returned; otherwise `name`
+// is left alone and nullptr is returned. `idx` is the identifier's token index,
+// used only for error reporting.
+static std::unique_ptr<ASTNode> parseSchema(const std::vector<Token>& tokens, size_t idx, std::string& name) {
+    size_t dot = name.find('.');
+    if (dot == std::string::npos) {
+        return nullptr;
+    }
+
+    // Allowed shape: exactly one '.', with text on both sides.
+    // dot == 0 cannot happen today (the lexer rejects a leading '.'), but it is
+    // kept so a future DOT token cannot reintroduce the case.
+    if (dot == 0 ||
+        dot == name.size() - 1 ||
+        name.find('.', dot + 1) != std::string::npos) {
+        parseError(tokens, idx, "invalid relation name");
+    }
+
+    auto schema = std::make_unique<ASTNode>();
+    schema->type  = InternalNode::SCHEMA;
+    schema->value = name.substr(0, dot);
+    name          = name.substr(dot + 1);
+    return schema;
+}
+
+std::unique_ptr<ASTNode> parseRelation(const std::vector<Token>& tokens, size_t& pos) {
     if (!check(tokens, pos, TokenType::IDENTIFIER)) {
         parseError(tokens, pos, "expected a table name");
     }
+
+    size_t idx = pos;                                   // offending token, taken before consuming
     Token idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-
-    if(idToken.lexeme.find('*') != std::string::npos){
-        parseError(tokens, pos-1, "relation name cannot contain '*'");
-    }
-
-    std::unique_ptr<ASTNode> schema = nullptr;
     std::string name = idToken.lexeme;
 
-    auto current_token = idToken.lexeme;
-    size_t len = current_token.find('.');
-
-    if (current_token.find('.', len + 1) != std::string::npos ||
-        len == 0 || len == current_token.size() - 1)
-        parseError(tokens, pos - 1, "invalid relation name");                 
-
-    if(current_token.find('.') != std::string::npos){
-        size_t pos_dot = name.find('.');
-        schema = std::make_unique<ASTNode>();
-        schema->type = InternalNode::SCHEMA;
-        schema->value = name.substr(0, pos_dot); 
-        name = name.substr(pos_dot + 1);
+    if (name.find('*') != std::string::npos) {
+        parseError(tokens, idx, "relation name cannot contain '*'");
     }
 
+    auto schema = parseSchema(tokens, idx, name);       // may shorten `name`
     auto relation = std::make_unique<ASTNode>();
-    relation->type = Relations::TABLE;
+    relation->type  = Relations::TABLE;
     relation->value = name;
-
-    if (schema){
+    if (schema) {
         relation->children.push_back(std::move(schema));
     }
-
     return relation;
 }
 

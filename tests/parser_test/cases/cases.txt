@@ -946,7 +946,7 @@ INSERT INTO t VALUES (1 AS x);
 --- error
 Syntax error: at or near "AS", expected ')'
 
-### q56_literal_alias_comprator
+### q56_literal_alias_comparator
 SELECT a FROM t WHERE a = 1 AS x;
 --- error
 Syntax error: at or near "AS", expected ';'

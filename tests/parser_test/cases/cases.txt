@@ -1193,3 +1193,84 @@ Syntax error: at or near "hr.", invalid relation name
 SELECT a FROM .employees;
 --- error
 Lexer Error: Unexpected symbol '.' at position 14
+
+### q90_create_auto_increment
+CREATE TABLE t (id INT AUTO_INCREMENT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    AUTO_INCREMENT
+
+### q91_create_pk_auto_increment
+CREATE TABLE t (id INT PRIMARY KEY AUTO_INCREMENT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    PRIMARY_KEY
+    AUTO_INCREMENT
+
+### q92_create_auto_increment_before_pk
+CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    AUTO_INCREMENT
+    PRIMARY_KEY
+
+### q93_create_auto_increment_not_null
+CREATE TABLE t (id INT NOT NULL AUTO_INCREMENT, name TEXT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    NOT_NULL
+    AUTO_INCREMENT
+  COLUMN: name
+    TYPE: TEXT
+
+### q94_create_auto_increment_on_varchar
+CREATE TABLE t (name VARCHAR(10) AUTO_INCREMENT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: name
+    TYPE: VARCHAR
+      LITERAL: 10
+    AUTO_INCREMENT
+
+### q95_create_auto_increment_twice
+CREATE TABLE t (id INT AUTO_INCREMENT AUTO_INCREMENT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    AUTO_INCREMENT
+    AUTO_INCREMENT
+
+### q96_create_auto_increment_without_type
+CREATE TABLE t (id AUTO_INCREMENT);
+--- error
+Syntax error: at or near "AUTO_INCREMENT", expected a type (INT, TEXT or VARCHAR)
+
+### q97_create_auto_increment_as_name
+CREATE TABLE t (AUTO_INCREMENT INT);
+--- error
+Syntax error: at or near "AUTO_INCREMENT", expected a column name
+
+### q98_create_auto_increment_two_words
+CREATE TABLE t (id INT AUTO INCREMENT);
+--- error
+Syntax error: at or near "AUTO", expected ')'
+
+### q99_create_missing_comma_between_columns
+CREATE TABLE t (id INT name TEXT);
+--- error
+Syntax error: at or near "name", expected ')'

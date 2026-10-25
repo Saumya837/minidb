@@ -24,11 +24,11 @@ if(EXISTS "${PG_INCLUDE_DIR}/libpq-fe.h")
 else()
     set(HAVE_PG OFF)
     message(WARNING "libpq not found at ${PG_ROOT}; skipping targets that need it "
-                    "(validator and the engine tests). Set -DPG_ROOT=... to enable them.")
+                    "(validator and the storage tests). Set -DPG_ROOT=... to enable them.")
 endif()
 
 include_directories(
-    engine/include
+    storage/include
     validator/include
     server/include
     session/include
@@ -38,19 +38,19 @@ include_directories(
 )
 
 # ---- libraries ----------------------------------------------------------
-add_library(minidb_engine STATIC
-    engine/src/page.cpp
-    engine/src/tuple.cpp
-    engine/src/pagestore.cpp
-    engine/src/transaction_manager.cpp
-    engine/src/buffer.cpp
-    engine/src/free_space_map.cpp
-    engine/src/visibility_map.cpp
-    engine/src/lock_manager.cpp
-    engine/src/thread_manager.cpp
+add_library(minidb_storage STATIC
+    storage/src/page.cpp
+    storage/src/tuple.cpp
+    storage/src/pagestore.cpp
+    storage/src/transaction_manager.cpp
+    storage/src/buffer.cpp
+    storage/src/free_space_map.cpp
+    storage/src/visibility_map.cpp
+    storage/src/lock_manager.cpp
+    storage/src/thread_manager.cpp
     server/src/server.cpp
 )
-target_include_directories(minidb_engine PUBLIC parser/include)
+target_include_directories(minidb_storage PUBLIC parser/include)
 
 add_library(minidb_session STATIC
     session/src/session_manager.cpp
@@ -95,7 +95,7 @@ add_test(NAME parser_cases COMMAND test_script)
 # ---- targets that need libpq --------------------------------------------
 if(HAVE_PG)
     add_executable(validator validator/src/main.cpp)
-    target_link_libraries(validator minidb_engine minidb_parser pq)
+    target_link_libraries(validator minidb_storage minidb_parser pq)
 
     add_executable(heap_test            tests/heap_test.cpp)
     add_executable(txn_test             tests/txn_test.cpp)
@@ -104,10 +104,10 @@ if(HAVE_PG)
     add_executable(insert_tuple_test    tests/insert_tuple_test.cpp)
     add_executable(lock_manager_test    tests/lock_manager_test.cpp)
 
-    target_link_libraries(heap_test            minidb_engine pq)
-    target_link_libraries(txn_test             minidb_engine pq)
-    target_link_libraries(tuple_visiblity_test minidb_engine pq)
-    target_link_libraries(buffer_test          minidb_engine pq)
-    target_link_libraries(insert_tuple_test    minidb_engine pq)
-    target_link_libraries(lock_manager_test    minidb_engine pq)
+    target_link_libraries(heap_test            minidb_storage pq)
+    target_link_libraries(txn_test             minidb_storage pq)
+    target_link_libraries(tuple_visiblity_test minidb_storage pq)
+    target_link_libraries(buffer_test          minidb_storage pq)
+    target_link_libraries(insert_tuple_test    minidb_storage pq)
+    target_link_libraries(lock_manager_test    minidb_storage pq)
 endif()

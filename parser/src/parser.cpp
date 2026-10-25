@@ -62,7 +62,7 @@ namespace {
             case TokenType::CHECK:          return "CHECK";
             case TokenType::CASCADE:        return "CASCADE";
             case TokenType::RESTRICT:       return "RESTRICT";
-            case TokenType::AUTO_INCREMENT: return "AUTO_INCREMENT";
+            case TokenType::AUTO_INCREMENT:   return "AUTO_INCREMENT";
             case TokenType::INT:            return "INT";
             case TokenType::INTEGER:        return "INTEGER";
             case TokenType::BIGINT:         return "BIGINT";
@@ -156,7 +156,8 @@ std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t
 
     // type
     auto type = std::make_unique<ASTNode>();
-    type->type = Clauses::TYPE;                      // adapt: new tag + label "TYPE"
+    type->type = Clauses::TYPE;     // adapt: new tag + label "TYPE"
+
     if (check(tokens, pos, TokenType::INT)) {
         type->value = "INT";
         pos++;
@@ -185,13 +186,21 @@ std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t
             auto pk = std::make_unique<ASTNode>();
             pk->type = Constraints::PRIMARY_KEY;         // adapt: new tag + label "PRIMARY_KEY"
             col->children.push_back(std::move(pk));
-        } else if (check(tokens, pos, TokenType::NOT)) {
+        }
+         else if (check(tokens, pos, TokenType::NOT)) {
             expect(tokens, pos, TokenType::NOT);
             expect(tokens, pos, TokenType::NULL_KW); // adapt: your NULL token name
             auto nn = std::make_unique<ASTNode>();
             nn->type = ExpressionType::NOT_NULL;            // adapt: new tag + label "NOT_NULL"
             col->children.push_back(std::move(nn));
-        } else {
+        } 
+        else if (check(tokens, pos, TokenType::AUTO_INCREMENT)) {
+            expect(tokens, pos, TokenType::AUTO_INCREMENT);   // adapt: your NULL token name
+            auto inc = std::make_unique<ASTNode>();
+            inc->type = Constraints::AUTO_INCREMENT;    // adapt: new tag + label "NOT_NULL"
+            col->children.push_back(std::move(inc));
+        } 
+        else {
             break;
         }
     }
@@ -216,10 +225,12 @@ std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size
     root->children.push_back(std::move(relation));
 
     expect(tokens, pos, TokenType::LPAREN);
-    do {
-        auto columns = parseColumnDef(tokens, pos);
-        root->children.push_back(std::move(columns));
-    } while (!check(tokens, pos, TokenType::RPAREN) && (pos++, true));
+
+    root->children.push_back(parseColumnDef(tokens, pos));
+    while (check(tokens, pos, TokenType::COMMA)) {
+        expect(tokens, pos, TokenType::COMMA);
+        root->children.push_back(parseColumnDef(tokens, pos));
+    }
     expect(tokens, pos, TokenType::RPAREN);
     return root;
 }
@@ -233,7 +244,6 @@ std::unique_ptr<ASTNode> parseCreateStatement(const std::vector<Token> &tokens, 
     } else {
         parseError(tokens, pos, "expected TABLE, MATERIALIZED VIEW or FUNCTION");
     }
-
     //parsing value with its type
     expect(tokens, pos, TokenType::SEMICOLON);
     return root;
@@ -796,11 +806,6 @@ std::unique_ptr<ASTNode> parseRelationWithAlias(const std::vector<Token>& tokens
     return rel;
 }
 
-
-// Splits "schema.table" held in `name`. If a schema part exists, `name` is
-// reduced to the table part and a SCHEMA node is returned; otherwise `name`
-// is left alone and nullptr is returned. `idx` is the identifier's token index,
-// used only for error reporting.
 static std::unique_ptr<ASTNode> parseSchema(const std::vector<Token>& tokens, size_t idx, std::string& name) {
     size_t dot = name.find('.');
     if (dot == std::string::npos) {

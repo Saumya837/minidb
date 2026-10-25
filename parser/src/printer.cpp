@@ -88,6 +88,7 @@ std::string tagToString(const ASTTag& tag){
                 case Constraints::UNIQUE: return "UNIQUE";
                 case Constraints::IF_EXISTS: return "IF_EXISTS";
                 case Constraints::IF_NOT_EXISTS: return "IF_NOT_EXISTS";
+                case Constraints::AUTO_INCREMENT:  return "AUTO_INCREMENT";
             }
         }
     }, tag);

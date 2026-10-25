@@ -1274,3 +1274,71 @@ Syntax error: at or near "AUTO", expected ')'
 CREATE TABLE t (id INT name TEXT);
 --- error
 Syntax error: at or near "name", expected ')'
+
+### q100_create_unique
+CREATE TABLE t (email TEXT UNIQUE);
+--- expect
+Create
+  TABLE: t
+  COLUMN: email
+    TYPE: TEXT
+    UNIQUE
+
+### q101_create_unique_not_null
+CREATE TABLE t (email VARCHAR(50) NOT NULL UNIQUE, id INT);
+--- expect
+Create
+  TABLE: t
+  COLUMN: email
+    TYPE: VARCHAR
+      LITERAL: 50
+    NOT_NULL
+    UNIQUE
+  COLUMN: id
+    TYPE: INT
+
+### q102_create_unique_before_not_null
+CREATE TABLE t (email TEXT UNIQUE NOT NULL);
+--- expect
+Create
+  TABLE: t
+  COLUMN: email
+    TYPE: TEXT
+    UNIQUE
+    NOT_NULL
+
+### q103_create_unique_with_pk_and_auto
+CREATE TABLE t (id INT PRIMARY KEY AUTO_INCREMENT UNIQUE);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    PRIMARY_KEY
+    AUTO_INCREMENT
+    UNIQUE
+
+### q104_create_unique_twice
+CREATE TABLE t (id INT UNIQUE UNIQUE);
+--- expect
+Create
+  TABLE: t
+  COLUMN: id
+    TYPE: INT
+    UNIQUE
+    UNIQUE
+
+### q105_create_unique_without_type
+CREATE TABLE t (id UNIQUE);
+--- error
+Syntax error: at or near "UNIQUE", expected a type (INT, TEXT or VARCHAR)
+
+### q106_create_unique_as_name
+CREATE TABLE t (UNIQUE INT);
+--- error
+Syntax error: at or near "UNIQUE", expected a column name
+
+### q107_create_unique_key
+CREATE TABLE t (id INT UNIQUE KEY);
+--- error
+Syntax error: at or near "KEY", expected ')'

@@ -199,7 +199,13 @@ std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t
             auto inc = std::make_unique<ASTNode>();
             inc->type = Constraints::AUTO_INCREMENT;    // adapt: new tag + label "NOT_NULL"
             col->children.push_back(std::move(inc));
-        } 
+        }
+        else if (check(tokens, pos, TokenType::UNIQUE)) {
+            expect(tokens, pos, TokenType::UNIQUE);   // adapt: your NULL token name
+            auto unique = std::make_unique<ASTNode>();
+            unique->type = Constraints::UNIQUE;    // adapt: new tag + label "NOT_NULL"
+            col->children.push_back(std::move(unique));
+        }
         else {
             break;
         }
@@ -226,10 +232,12 @@ std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size
 
     expect(tokens, pos, TokenType::LPAREN);
 
-    root->children.push_back(parseColumnDef(tokens, pos));
+    auto col = parseColumnDef(tokens, pos);
+    root->children.push_back(std::move(col));
     while (check(tokens, pos, TokenType::COMMA)) {
         expect(tokens, pos, TokenType::COMMA);
-        root->children.push_back(parseColumnDef(tokens, pos));
+        auto col = parseColumnDef(tokens, pos);
+        root->children.push_back(std::move(col));
     }
     expect(tokens, pos, TokenType::RPAREN);
     return root;

@@ -1536,15 +1536,15 @@ Statement        := SelectStat | InsertStat | UpdateStat | DeleteStat | DropStat
 
 InsertStat       := INSERT INTO IDENTIFIER (LPAREN plain_column_list RPAREN)? VALUES value_tuple (COMMA value_tuple)* SEMICOLON
 value_tuple      := LPAREN value_list RPAREN
-value_list       := literal (COMMA literal)*
-literal          := NUMBER | STRING
+value_list       := value (COMMA value)*
+value            := NULL | MINUS? NUMBER | STRING      # not a full expression (yet)
 UpdateStat       := UPDATE relation SET assignment (COMMA assignment)* where_clause? SEMICOLON
-assignment       := column EQUALS operand        # column: no alias; qualifier allowed
+assignment       := qualified_name EQUALS expression   # no alias; qualifier allowed
 DeleteStat       := DELETE FROM relation where_clause? SEMICOLON
 CreateStat       := CREATE TABLE (IF NOT EXISTS)? relation LPAREN column_def (COMMA column_def)* RPAREN SEMICOLON
 column_def       := IDENTIFIER type constraint*
 type             := INT | TEXT | VARCHAR LPAREN NUMBER RPAREN
-constraint       := PRIMARY KEY | NOT NULL
+constraint       := PRIMARY KEY | NOT NULL | AUTO_INCREMENT | UNIQUE
 DropStat         := DROP TABLE (IF EXISTS)? IDENTIFIER SEMICOLON
                   | DROP INDEX (IF EXISTS)? index_list ON IDENTIFIER SEMICOLON
 index_list       := index (COMMA index)*
@@ -1554,16 +1554,12 @@ SelectStat       := SELECT DISTINCT? projection_list from_clause? where_clause? 
                       having_clause? order_by_clause? limit_clause? SEMICOLON
 
 projection_list  := projection_item (COMMA projection_item)*
-projection_item  := STAR | qualified_star | function_call | literal_item | column
-literal_item     := literal alias?                # alias attached by the select-list caller
-literal          := NUMBER | STRING               # parseLiteral never takes an alias
+projection_item  := STAR | qualified_star | expression alias?   # alias attached here, never inside an expression
 qualified_star   := IDENTIFIER_DOT_STAR      # lexed as one token, e.g. emp.*
-function_call    := IDENTIFIER LPAREN arg_list RPAREN alias?
-arg_list         := STAR | arg_item (COMMA arg_item)*
-arg_item         := function_call | column | literal     # no alias inside arguments
+function_call    := IDENTIFIER LPAREN arg_list? RPAREN          # zero arguments allowed: NOW()
+arg_list         := STAR | expression (COMMA expression)*       # no alias inside arguments
 
 plain_column_list := plain_column (COMMA plain_column)*  # INSERT, GROUP BY: no alias
-column            := qualified_name alias?               # select list only for alias
 qualified_name    := IDENTIFIER                          # optionally table.column
 
 from_clause       := FROM relation (COMMA relation)* joins*   # optional in SelectStat;
@@ -1579,22 +1575,53 @@ alias             := AS? IDENTIFIER                      # no '.'
 where_clause      := WHERE condition
 having_clause     := HAVING condition   # requires a preceding group_by_clause
 
-condition         := or_expr
+condition         := expression
+expression        := or_expr
 or_expr           := and_expr (OR and_expr)*
-and_expr          := primary (AND primary)*
-primary           := LPAREN or_expr RPAREN | comparison
-
-comparison        := operand comparator operand
-comparator        := EQUALS | GREATER | SMALLER | GREATER_EQUAL | LESSER_EQUAL
-operand           := function_call | IDENTIFIER | NUMBER | STRING
+and_expr          := not_expr (AND not_expr)*
+not_expr          := NOT not_expr | predicate
+predicate         := additive ( cmp additive
+                              | IS NOT? NULL
+                              | NOT? IN LPAREN additive (COMMA additive)* RPAREN
+                              | NOT? BETWEEN additive AND additive
+                              | NOT? LIKE additive )?       # at most one comparison: a = b = c is an error
+additive          := term ((PLUS | MINUS) term)*
+term              := unary ((STAR | SLASH | PERCENT) unary)*
+unary             := MINUS unary | primary
+primary           := literal | NULL | function_call | qualified_name | LPAREN expression RPAREN
+literal           := NUMBER | STRING               # parseLiteral never takes an alias
+cmp               := EQUALS | NOT_EQUALS | SMALLER | LESSER_EQUAL | GREATER | GREATER_EQUAL
+                     # '!=' and '<>' both lex to NOT_EQUALS
 
 group_by_clause   := GROUP BY plain_column_list
 order_by_clause   := ORDER BY order_item (COMMA order_item)*
-order_item        := (column | position) (ASC | DESC)?
+order_item        := (qualified_name | position) (ASC | DESC)?
 position          := NUMBER
 
 limit_clause      := LIMIT NUMBER
 ```
+
+**Implemented vs target.** Everything above is implemented **except** the
+expression layer from `not_expr` down and its uses (`projection_item`
+and `arg_list` as `expression`, `assignment` and `value` with `NULL` and
+unary minus, zero-argument calls). That part is the **target grammar**
+for the expression work; the code still has `or_expr → and_expr →
+comparison → operand` with the five comparators. See the status list
+for the stages.
+
+**Notes on the target expression grammar**
+- **Negated forms are one rule.** `IS NOT NULL`, `NOT IN`, `NOT BETWEEN`
+  and `NOT LIKE` become a `NOT` node wrapping the positive form, so there
+  are no `IS_NOT_NULL` or `NOT_IN` tags.
+- **`BETWEEN` bounds are `additive`**, so the `AND` belongs to `BETWEEN`
+  and does not split the condition.
+- **Alias is the slot owner's job.** Expressions never consume an alias;
+  `projection_item` attaches it, matching the node-builder rule.
+- **`STAR` has two meanings**, resolved by position: at the start of a
+  projection item it is the star; after an operand it is multiplication.
+- **Comparisons do not chain**: `predicate` allows one trailing
+  comparison, so `a = b = c` is a syntax error, as in Postgres.
+- **Both `!=` and `<>` lex to `NOT_EQUALS`** and produce one tree label.
 
 **Why `or_expr`/`and_expr` are layered instead of one self-referential
 `condition` rule.** A naive grammar like
@@ -1883,9 +1910,12 @@ while (true) {
       **Open decision: node labels**)
 - [ ] A `pre-push` hook that runs `ctest` and blocks a push on failures
 - [ ] `isTypeToken` helper
-- [ ] Expression gaps: zero-argument calls (`NOW()`), comparators beyond
-      the five (`!=`, `<>`), `NOT`, `NULL`/`IS NULL`, `IN`, `BETWEEN`,
-      `LIKE`, arithmetic (`SET salary = salary + 1000`)
+- [ ] Expression grammar (target grammar is written, code is not), in
+      stages: (1) `!=`/`<>`, `NULL` as a value, zero-argument calls;
+      (2) `IS [NOT] NULL`; (3) `NOT`; (4) arithmetic with precedence and
+      unary minus (check the lexer: `a*b` and `-5`); (5) `IN`,
+      `BETWEEN`, `LIKE` and their `NOT` forms; then expressions in the
+      select list, arguments and `SET`
 - [ ] `OFFSET`
 - [ ] Duplicated projection dispatch (before and inside the comma loop) —
       extract `parseProjectionItem`

@@ -1219,7 +1219,7 @@ create_target:= TABLE (IF NOT EXISTS)? relation
                 LPAREN column_def (COMMA column_def)* RPAREN
 column_def   := IDENTIFIER type constraint*
 type         := INT | TEXT | VARCHAR LPAREN NUMBER RPAREN
-constraint   := PRIMARY KEY | NOT NULL
+constraint   := PRIMARY KEY | NOT NULL | UNIQUE | AUTO_INCREMENT
 ```
 ```
 SQL> CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, name VARCHAR(20) NOT NULL);
@@ -1245,7 +1245,8 @@ Create
   `IF_EXISTS` under `Drop`.
 - **`TYPE` carries the type name as its value**; `VARCHAR`'s length is a
   `LITERAL` child, reusing `parseLiteral`.
-- **Constraints are childless markers** (`PRIMARY_KEY`, `NOT_NULL`) in
+- **Constraints are childless markers** (`PRIMARY_KEY`, `NOT_NULL`,
+  `UNIQUE`, `AUTO_INCREMENT`) in
   the order written, like `DISTINCT` under `Select`.
 - **Parentheses and commas produce no nodes**; the `Create` node's
   children are just the optional marker, the table and the columns.
@@ -1296,8 +1297,8 @@ it reports the *type* error naming `FLOAT` rather than a generic
 
 **Not yet done (stage 2)**
 - More types (`INTEGER`, `BIGINT`, `DECIMAL(p,s)`, `BOOLEAN`, `DATE`, ...)
-  and the constraints `UNIQUE`, `DEFAULT literal`, `AUTO_INCREMENT`. The
-  keywords exist; each is one branch plus cases.
+  and the constraint `DEFAULT literal`. The keywords exist; each is one
+  branch plus cases. (`UNIQUE` and `AUTO_INCREMENT` are done.)
 - Table-level constraints (`CONSTRAINT name ...`, `FOREIGN KEY ...
   REFERENCES ...`, `CHECK (cond)` reusing `or_expr`,
   `ON DELETE CASCADE | RESTRICT | SET NULL`).
@@ -1886,7 +1887,8 @@ while (true) {
       `TokenType` (`NULL_KW`, no `ISNULL`/`NOTNULL`/`ELSE`)
 - [x] `parseCreateStatement()` / `parseCreateTable()` /
       `parseColumnDef()` — `CREATE TABLE` with `IF NOT EXISTS`, `INT`,
-      `TEXT`, `VARCHAR(n)`, `PRIMARY KEY`, `NOT NULL`
+      `TEXT`, `VARCHAR(n)`, and the constraints `PRIMARY KEY`, `NOT NULL`,
+      `UNIQUE`, `AUTO_INCREMENT`
 - [x] Optional `FROM` in `SELECT` (see **`SELECT` without `FROM`**), with
       its cases
 - [x] `DELETE` restricted to one relation; comma lists and joins rejected
@@ -1903,8 +1905,8 @@ while (true) {
       `tests/scripts/run_tests_if_changed.sh`)
 
 **Not yet done:**
-- [ ] `CREATE TABLE` stage 2: more types, `UNIQUE`/`DEFAULT`/
-      `AUTO_INCREMENT`, table-level constraints (see **`CREATE TABLE`**).
+- [ ] `CREATE TABLE` stage 2: more types, `DEFAULT`, table-level
+      constraints (see **`CREATE TABLE`**).
       Then `CREATE INDEX`
 - [ ] The keyword-coverage lexer test (tokenize every keyword spelling,
       check none comes back as `IDENTIFIER`)

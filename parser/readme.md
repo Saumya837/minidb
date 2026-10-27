@@ -59,7 +59,7 @@ enum class ExpressionType { EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUA
 enum class InternalNode   { VALUE_TUPLE, ORDER_ITEM, ARG_LIST, QUALIFIER, INDEX_LIST, SCHEMA };
 enum class ValueType      { COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION, INDEX };
 enum class OrderDirection { ASC, DESC };
-enum class Constraints    { PRIMARY_KEY, FOREIGN_KEY, UNIQUE, IF_EXISTS, IF_NOT_EXISTS };
+enum class Constraints    { PRIMARY_KEY, FOREIGN_KEY, UNIQUE, AUTO_INCREMENT, IF_EXISTS, IF_NOT_EXISTS };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType,
                              ValueType, OrderDirection, InternalNode, Constraints>;
@@ -69,8 +69,8 @@ using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType,
 - `Constraints` is the eighth enum, added for `CREATE TABLE`: the
   childless markers that say *how* an object behaves rather than what it
   is. `IF_EXISTS` moved here from `Clauses`; `IF_NOT_EXISTS` and
-  `PRIMARY_KEY` are new. `FOREIGN_KEY` and `UNIQUE` are declared for
-  stage 2 and not produced yet.
+  `PRIMARY_KEY`, `UNIQUE` and `AUTO_INCREMENT` are new. `FOREIGN_KEY` is
+  declared for stage 2 and not produced yet.
 - `Clauses::TYPE` is the column's type node (`TYPE: INT`, with a
   `LITERAL` child for `VARCHAR(n)`).
 - `ExpressionType::NOT_NULL` is the `NOT NULL` column constraint, and
@@ -637,7 +637,9 @@ Syntax error: unexpected end of input, expected ';'
 | Where | Message |
 |---|---|
 | `parseStatement` | `expected SELECT, INSERT, UPDATE, DELETE or DROP` |
-| `parseStatement`, `CREATE` / `ALTER` | `CREATE is not supported yet` / `ALTER is not supported yet` |
+| `parseStatement`, `ALTER` | `ALTER is not supported yet` |
+| `parseCreateStatement` | `expected TABLE, MATERIALIZED VIEW or FUNCTION` |
+| `parseColumnDef` | `expected a column name`, `expected a type (INT, TEXT or VARCHAR)`, `expected a length` |
 | `parseDropStatement` | `expected TABLE or INDEX` |
 | `parseLiteral` / `expectLiteral` | `expected a number or string` |
 | `parseOperand`, last branch | `expected a value (column, literal or function call)` |
@@ -647,7 +649,7 @@ Syntax error: unexpected end of input, expected ';'
 | `parseQualifier` | `malformed qualified name`, `star is only allowed in the select list` |
 | `parseAlias` | `alias cannot contain '.'` |
 | `parseIndex` | `index name cannot contain '.'` |
-| `parseRelation` | `relation name cannot contain '*'` |
+| `parseRelation` | `expected a table name`, `relation name cannot contain '*'`, `invalid relation name` |
 | `expect()` | `expected <token>` / `unexpected end of input, expected <token>` |
 
 Errors fall in three buckets, and only the first two exist yet:
@@ -1201,9 +1203,9 @@ Select
 Errors (all covered by cases):
 ```
 SELECT a FROM emp.*;             relation name cannot contain '*'
-SELECT a FROM db.hr.employees;   relation name cannot contain more than one '.'
-SELECT a FROM hr.;               relation name cannot end with '.'
-SELECT a FROM .employees;        lexer error: the lexer rejects a leading '.'
+SELECT a FROM db.hr.employees;   invalid relation name
+SELECT a FROM hr.;               invalid relation name
+SELECT a FROM .employees;        lexical error: the lexer rejects a leading '.'
 ```
 The leading-dot case never reaches the parser, because the lexer cannot
 turn a bare `.` into a token. The suite pins that behaviour; a `DOT`
@@ -2964,6 +2966,80 @@ SELECT emp.name FROM employees emp WHERE emp.id = 5;
 -- Query 44 (DISTINCT, literal in the select list)
 SELECT DISTINCT name FROM employees;
 SELECT name, 1 FROM employees;
+
+-- Query 45 (SELECT without FROM, literal aliases — one node per line, "/" = next line)
+SELECT 1;                          -- Select / LITERAL: 1
+SELECT 1 AS one, 'x' AS tag;       -- Select / LITERAL: 1 / ALIAS: one / LITERAL: x / ALIAS: tag
+SELECT 1 WHERE 1 = 1;              -- Select / LITERAL: 1 / WHERE / EQUALS / LITERAL: 1 / LITERAL: 1
+SELECT;                            -- error: at or near ";", expected a value (column, literal or function call)
+SELECT 1 FROM;                     -- error: at or near ";", expected a table name
+
+-- Query 46 (DELETE: one relation, alias allowed)
+DELETE FROM employees e WHERE e.id = 5;
+-- Delete / FROM / TABLE: employees / ALIAS: e / WHERE / EQUALS / COLUMN: id / QUALIFIER: e / LITERAL: 5
+DELETE FROM employees AS e;        -- Delete / FROM / TABLE: employees / ALIAS: e
+DELETE FROM a, b;                  -- error: at or near ",", expected ';'
+DELETE FROM a JOIN b ON a.id = b.id;
+                                   -- error: at or near "JOIN", expected ';'
+DELETE FROM a LEFT JOIN b ON a.id = b.id WHERE a.id = 1;
+                                   -- error: at or near "LEFT", expected ';'
+
+-- Query 47 (schema-qualified relation names)
+SELECT e.a FROM hr.employees e;
+-- Select / FROM / TABLE: employees / SCHEMA: hr / ALIAS: e / COLUMN: a / QUALIFIER: e
+DELETE FROM hr.employees WHERE id = 1;
+-- Delete / FROM / TABLE: employees / SCHEMA: hr / WHERE / EQUALS / COLUMN: id / LITERAL: 1
+CREATE TABLE hr.employees (id INT);
+-- Create / TABLE: employees / SCHEMA: hr / COLUMN: id / TYPE: INT
+SELECT a FROM db.hr.employees;     -- error: at or near "db.hr.employees", invalid relation name
+SELECT a FROM hr.;                 -- error: at or near "hr.", invalid relation name
+SELECT a FROM .employees;          -- lexical error: the lexer rejects the leading '.'
+
+-- Query 48 (CREATE TABLE: types, constraints, IF NOT EXISTS, multi-line)
+CREATE TABLE IF NOT EXISTS users (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(50) NOT NULL UNIQUE,
+  age INT
+);
+```
+```
+Create
+├─> IF_NOT_EXISTS
+├─> TABLE: users
+├─> COLUMN: id
+│   ├─> TYPE: INT
+│   ├─> PRIMARY_KEY
+│   └─> AUTO_INCREMENT
+├─> COLUMN: email
+│   ├─> TYPE: VARCHAR
+│   │   └─> LITERAL: 50
+│   ├─> NOT_NULL
+│   └─> UNIQUE
+└─> COLUMN: age
+    └─> TYPE: INT
+```
+Constraints keep the order written, and a repeated constraint is kept
+twice (`id INT UNIQUE UNIQUE` gives two `UNIQUE` children): the parser
+does not judge it, the binder decides. `AUTO_INCREMENT` on a `VARCHAR`
+parses for the same reason.
+
+```sql
+-- Query 49 (CREATE TABLE errors — must throw)
+CREATE TABLE t ();                  -- at or near ")", expected a column name
+CREATE TABLE t (id);                -- at or near ")", expected a type (INT, TEXT or VARCHAR)
+CREATE TABLE t (id INT,);           -- at or near ")", expected a column name
+CREATE TABLE t id INT;              -- at or near "id", expected '('
+CREATE TABLE t (id FLOAT);          -- at or near "FLOAT", expected a type (INT, TEXT or VARCHAR)
+CREATE TABLE t (name VARCHAR);      -- at or near ")", expected '('
+CREATE TABLE t (id INT PRIMARY);    -- at or near ")", expected KEY
+CREATE TABLE t (id INT NOT);        -- at or near ")", expected NULL
+CREATE TABLE (id INT);              -- at or near "(", expected a table name
+CREATE TABLE t (id INT name TEXT);  -- at or near "name", expected ')'      (missing comma)
+CREATE TABLE t (id INT AUTO INCREMENT);
+                                    -- at or near "AUTO", expected ')'      (one keyword: AUTO_INCREMENT)
+CREATE TABLE t (id INT UNIQUE KEY); -- at or near "KEY", expected ')'
+CREATE TABLE t (id AUTO_INCREMENT); -- at or near "AUTO_INCREMENT", expected a type (INT, TEXT or VARCHAR)
+CREATE TABLE t (UNIQUE INT);        -- at or near "UNIQUE", expected a column name
 ```
 
 Full pipeline (`tokenize` → `parseStatement` → `printAST`) confirmed for

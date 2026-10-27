@@ -1,9 +1,7 @@
 #include "case_runner.hpp"
-
 #include "lexer.hpp"
 #include "parser.hpp"
 #include "tree_dump.hpp"
-
 #include <exception>
 #include <vector>
 

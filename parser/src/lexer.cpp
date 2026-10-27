@@ -48,7 +48,6 @@ std::vector<Token> tokenize(const std::string &sql){
                 lexeme += sql[pos];
                 pos++;
             }
-
             std::string upperLexeme = lexeme;
             for (char& ch :upperLexeme){
                 ch = std::toupper(static_cast<unsigned char>(ch));

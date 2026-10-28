@@ -18,7 +18,7 @@ enum class Relations{
 };
 
 enum class ExpressionType {
-    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, AND, OR, NOT_NULL, _NULL
+    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, NOT_EQUALS, AND, OR, NOT_NULL, _NULL
 };
 
 enum class InternalNode {

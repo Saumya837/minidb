@@ -377,6 +377,7 @@ Select
     TABLE: employees
   COLUMN: department
   FUNCTION: COUNT
+    ARG_LIST: STAR
   FUNCTION: SUM
     ARG_LIST
       COLUMN: salary
@@ -1342,3 +1343,121 @@ Syntax error: at or near "UNIQUE", expected a column name
 CREATE TABLE t (id INT UNIQUE KEY);
 --- error
 Syntax error: at or near "KEY", expected ')'
+
+### q108_expr_not_equals_bang
+SELECT a FROM t WHERE a != 1;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    NOT EQUALS
+      COLUMN: a
+      LITERAL: 1
+
+### q109_expr_not_equals_angle
+SELECT a FROM t WHERE a <> 1;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    NOT EQUALS
+      COLUMN: a
+      LITERAL: 1
+
+### q110_expr_not_equals_no_spaces
+SELECT a FROM t WHERE a<>1 AND b!=2;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    AND
+      NOT EQUALS
+        COLUMN: a
+        LITERAL: 1
+      NOT EQUALS
+        COLUMN: b
+        LITERAL: 2
+
+### q111_expr_not_equals_having
+SELECT a FROM t GROUP BY a HAVING a <> 1;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  GROUP BY
+    COLUMN: a
+  HAVING
+    NOT EQUALS
+      COLUMN: a
+      LITERAL: 1
+
+### q112_expr_not_equals_join_on
+SELECT a FROM t JOIN u ON t.id != u.id;
+--- expect
+Select
+  FROM
+    TABLE: t
+    JOIN
+      TABLE: u
+      NOT EQUALS
+        COLUMN: id
+          QUALIFIER: t
+        COLUMN: id
+          QUALIFIER: u
+  COLUMN: a
+
+### q113_expr_zero_arg_call
+SELECT NOW();
+--- expect
+Select
+  FUNCTION: NOW
+
+### q114_expr_zero_arg_call_alias
+SELECT NOW() AS t;
+--- expect
+Select
+  FUNCTION: NOW
+    ALIAS: t
+
+### q115_expr_zero_arg_in_where
+SELECT a FROM t WHERE a != NOW();
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    NOT EQUALS
+      COLUMN: a
+      FUNCTION: NOW
+
+### expr_count_star_unchanged
+SELECT COUNT(*) FROM t;
+--- expect
+Select
+  FROM
+    TABLE: t
+  FUNCTION: COUNT
+    ARG_LIST: STAR
+
+### expr_null_value_update
+UPDATE t SET a = NULL WHERE id = 1;
+--- expect
+Update
+  TABLE: t
+  SET
+    EQUALS
+      COLUMN: a
+      NULL
+  WHERE
+    EQUALS
+      COLUMN: id
+      LITERAL: 1
+

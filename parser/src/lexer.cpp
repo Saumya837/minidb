@@ -73,7 +73,29 @@ std::vector<Token> tokenize(const std::string &sql){
             continue;
         }
 
-        else if (c == '>' || c == '<'){
+       else if (c == '!') {
+        if (pos + 1 < length && sql[pos + 1] == '=') {
+            tokens.push_back(Token{TokenType::NOT_EQUALS, "!="});
+            pos += 2;
+            continue;
+        }
+        // a lone '!' is not a token: fall into the shared error below <raise the unexpected-symbol error for '!'>
+    }
+    else if (c == '<') {
+        if (pos + 1 < length && sql[pos + 1] == '=') {
+            tokens.push_back(Token{TokenType::LESSER_EQUAL, "<="});
+            pos += 2;
+        } else if (pos + 1 < length && sql[pos + 1] == '>') {
+            tokens.push_back(Token{TokenType::NOT_EQUALS, "<>"});
+            pos += 2;
+        } else {
+            tokens.push_back(Token{TokenType::SMALLER, "<"});
+            pos++;
+        }
+        continue;
+    }
+
+        else if (c == '>'){
             pos++;
             if(pos < length && sql[pos] == '='){
                 tokens.push_back(

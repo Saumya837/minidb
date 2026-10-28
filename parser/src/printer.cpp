@@ -48,9 +48,10 @@ std::string tagToString(const ASTTag& tag){
                 case ExpressionType::SMALLER: return "SMALLER";
                 case ExpressionType::GREATER_EQUAL: return "GREATER EQUAL";
                 case ExpressionType::LESSER_EQUAL: return "SMALLER EQUAL";
+                case ExpressionType::NOT_EQUALS: return "NOT EQUALS";
+                case ExpressionType::NOT_NULL: return "NOT_NULL";
                 case ExpressionType::AND: return "AND";
                 case ExpressionType::OR: return "OR";
-                case ExpressionType::NOT_NULL: return "NOT_NULL";
                 case ExpressionType::_NULL: return "NULL";
             }
         }

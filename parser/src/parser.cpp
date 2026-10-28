@@ -727,8 +727,12 @@ std::unique_ptr<ASTNode> parseFunctionCall(const std::vector<Token> &tokens, siz
     expect(tokens, pos, TokenType::LPAREN);
     if(check(tokens, pos, TokenType::STAR)){
         expect(tokens, pos, TokenType::STAR);
+        auto arg_list = std::make_unique<ASTNode>();
+        arg_list->type = InternalNode::ARG_LIST;
+        arg_list->value = "STAR";
+        function->children.push_back(std::move(arg_list)); 
     }
-    else{
+    else if (check(tokens, pos, TokenType::IDENTIFIER)){
         auto arg_list = std::make_unique<ASTNode>();
         arg_list->type = InternalNode::ARG_LIST;
         auto args = parseArgsList(tokens, pos);
@@ -770,7 +774,7 @@ std::unique_ptr<ASTNode> parseArg(const std::vector<Token>& tokens, size_t& pos)
         arg->type = ValueType::COLUMN;
         arg->value = idToken.lexeme;
     }
-    else {
+    else{
         Token idToken = expectLiteral(tokens, pos);
         arg->type = ValueType::LITERAL;
         arg->value = idToken.lexeme;
@@ -958,14 +962,40 @@ std::unique_ptr<ASTNode> parseComparison(const std::vector<Token>& tokens, size_
         expect(tokens, pos, TokenType::LESSER_EQUAL);
         comperator->type = ExpressionType::LESSER_EQUAL;
     }
+    else if (check(tokens, pos, TokenType::NOT_EQUALS)) {
+        expect(tokens, pos, TokenType::NOT_EQUALS);
+        comperator->type = ExpressionType::NOT_EQUALS;
+    }
+    else if(check(tokens, pos, TokenType::IS)){
+        expect(tokens, pos, TokenType::IS);
+        if(check(tokens, pos, TokenType::NOT)){
+            expect(tokens, pos, TokenType::NOT);
+            expect(tokens, pos, TokenType::NULL_KW);
+            comperator->type = ExpressionType::NOT_NULL;
+        }
+        else if(check(tokens, pos, TokenType::NULL_KW)){
+            expect(tokens, pos, TokenType::NULL_KW);
+            comperator->type = ExpressionType::_NULL;
+        }
+        else if(check(tokens, pos, TokenType::NOTNULL)){
+            expect(tokens, pos, TokenType::NOTNULL);
+            comperator->type = ExpressionType::NOT_NULL;
+        }
+    }
+    else if (check(tokens, pos, TokenType::ISNULL)){
+        expect(tokens, pos, TokenType::ISNULL);
+        comperator->type = ExpressionType::_NULL;
+    }
+    else if (check(tokens, pos, TokenType::NULL_KW)){
+        expect(tokens, pos, TokenType::NULL_KW);
+        comperator->type = ExpressionType::_NULL;
+    }
     else {
         parseError(tokens, pos, "<comparator expected>");
     }
-
     auto operand2 = parseOperand(tokens, pos);
     comperator->children.push_back(std::move(operand1));
     comperator->children.push_back(std::move(operand2));
-
     return comperator;
 }
 
@@ -983,11 +1013,14 @@ std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& 
         op->type = ValueType::COLUMN;
         op->value = idToken.lexeme;
     }
-
     else if(check(tokens, pos, TokenType::STRING) || check(tokens, pos, TokenType::NUMBER)){
         auto idToken = expectLiteral(tokens, pos);
         op->type = ValueType::LITERAL;
         op->value = idToken.lexeme;
+    }
+    else if(check(tokens, pos, TokenType::NULL_KW)){
+        expect(tokens, pos, TokenType::NULL_KW);
+        op->type = ExpressionType::_NULL;
     }
     else {
         parseError(tokens, pos, "expected a value (column, literal or function call)");

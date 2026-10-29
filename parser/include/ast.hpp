@@ -18,7 +18,7 @@ enum class Relations{
 };
 
 enum class ExpressionType {
-    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, NOT_EQUALS, AND, OR, NOT_NULL, _NULL
+    EQUALS, GREATER, SMALLER, GREATER_EQUAL, LESSER_EQUAL, NOT_EQUALS, AND, OR, NOT_NULL, IS_NULL
 };
 
 enum class InternalNode {
@@ -26,7 +26,7 @@ enum class InternalNode {
 };
 
 enum class ValueType {
-    COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION, INDEX
+    COLUMN, LITERAL, POSITION, ALIAS, STAR, FUNCTION, INDEX, _NULL
 };
 
 enum class OrderDirection {

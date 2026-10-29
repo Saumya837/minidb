@@ -47,12 +47,12 @@ std::string tagToString(const ASTTag& tag){
                 case ExpressionType::GREATER: return "GREATER";
                 case ExpressionType::SMALLER: return "SMALLER";
                 case ExpressionType::GREATER_EQUAL: return "GREATER EQUAL";
-                case ExpressionType::LESSER_EQUAL: return "SMALLER EQUAL";
+                case ExpressionType::LESSER_EQUAL: return "SMALLEREQUAL";
                 case ExpressionType::NOT_EQUALS: return "NOT EQUALS";
+                case ExpressionType::IS_NULL: return "IS_NULL";
                 case ExpressionType::NOT_NULL: return "NOT_NULL";
                 case ExpressionType::AND: return "AND";
                 case ExpressionType::OR: return "OR";
-                case ExpressionType::_NULL: return "NULL";
             }
         }
         else if constexpr(std::is_same_v<T, ValueType>){
@@ -64,6 +64,7 @@ std::string tagToString(const ASTTag& tag){
                 case ValueType::STAR: return "STAR";
                 case ValueType::FUNCTION: return "FUNCTION";
                 case ValueType::INDEX: return "INDEX";
+                case ValueType::_NULL: return "NULL";
             }
         }
         else if constexpr(std::is_same_v<T, OrderDirection>){

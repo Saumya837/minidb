@@ -1438,7 +1438,7 @@ Select
       COLUMN: a
       FUNCTION: NOW
 
-### expr_count_star_unchanged
+### q116_expr_count_star_unchanged
 SELECT COUNT(*) FROM t;
 --- expect
 Select
@@ -1447,7 +1447,7 @@ Select
   FUNCTION: COUNT
     ARG_LIST: STAR
 
-### expr_null_value_update
+### q117_expr_null_value_update
 UPDATE t SET a = NULL WHERE id = 1;
 --- expect
 Update
@@ -1460,4 +1460,50 @@ Update
     EQUALS
       COLUMN: id
       LITERAL: 1
+
+### q118_expr_is_null
+SELECT a FROM t WHERE a IS NULL;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    IS_NULL
+      COLUMN: a
+
+### q119_expr_is_not_null
+SELECT a FROM t WHERE a IS NOT NULL;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    NOT_NULL
+      COLUMN: a
+
+### 120_expr_is_null_and_chain
+SELECT a FROM t WHERE a IS NULL AND b IS NOT NULL;
+--- expect
+Select
+  FROM
+    TABLE: t
+  COLUMN: a
+  WHERE
+    AND
+      IS_NULL
+        COLUMN: a
+      NOT_NULL
+        COLUMN: b
+
+### q121_expr_is_null_bad_token
+SELECT a FROM t WHERE a IS 5;
+--- error
+Syntax error: at or near "5", expected NULL
+
+### q122_expr_is_not_bad_token
+SELECT a FROM t WHERE a IS NOT 5;
+--- error
+Syntax error: at or near "5", expected NULL
 

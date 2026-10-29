@@ -291,10 +291,15 @@ std::unique_ptr<ASTNode> parseAssignment(const std::vector<Token>& tokens, size_
     }
     else if(check(tokens, pos, TokenType::IDENTIFIER)){
         auto idToken = expect(tokens, pos, TokenType::IDENTIFIER);
-
         auto operand1 = std::make_unique<ASTNode>();
         operand1->type = ValueType::COLUMN;
         operand1->value = idToken.lexeme;
+        op1->children.push_back(std::move(operand1));
+    }
+    else if(check(tokens, pos, TokenType::NULL_KW)){
+        expect(tokens, pos, TokenType::NULL_KW);
+        auto operand1 = std::make_unique<ASTNode>();
+        operand1->type = ValueType::_NULL;
         op1->children.push_back(std::move(operand1));
     }
     else{
@@ -968,27 +973,30 @@ std::unique_ptr<ASTNode> parseComparison(const std::vector<Token>& tokens, size_
     }
     else if(check(tokens, pos, TokenType::IS)){
         expect(tokens, pos, TokenType::IS);
+
+        auto op = std::make_unique<ASTNode>();
         if(check(tokens, pos, TokenType::NOT)){
             expect(tokens, pos, TokenType::NOT);
-            expect(tokens, pos, TokenType::NULL_KW);
             comperator->type = ExpressionType::NOT_NULL;
         }
-        else if(check(tokens, pos, TokenType::NULL_KW)){
-            expect(tokens, pos, TokenType::NULL_KW);
-            comperator->type = ExpressionType::_NULL;
-        }
-        else if(check(tokens, pos, TokenType::NOTNULL)){
-            expect(tokens, pos, TokenType::NOTNULL);
-            comperator->type = ExpressionType::NOT_NULL;
-        }
+        else {
+            comperator->type = ExpressionType::IS_NULL;
+        } 
+        expect(tokens, pos, TokenType::NULL_KW);
+        comperator->children.push_back(std::move(operand1));
+        return comperator;
     }
     else if (check(tokens, pos, TokenType::ISNULL)){
         expect(tokens, pos, TokenType::ISNULL);
-        comperator->type = ExpressionType::_NULL;
+        comperator->type = ExpressionType::IS_NULL;
+        comperator->children.push_back(std::move(operand1));
+        return comperator;
     }
-    else if (check(tokens, pos, TokenType::NULL_KW)){
-        expect(tokens, pos, TokenType::NULL_KW);
-        comperator->type = ExpressionType::_NULL;
+    else if (check(tokens, pos, TokenType::NOTNULL)){
+        expect(tokens, pos, TokenType::NOTNULL);
+        comperator->type = ExpressionType::NOT_NULL;
+        comperator->children.push_back(std::move(operand1));
+        return comperator;
     }
     else {
         parseError(tokens, pos, "<comparator expected>");
@@ -1017,10 +1025,6 @@ std::unique_ptr<ASTNode> parseOperand(const std::vector<Token>& tokens, size_t& 
         auto idToken = expectLiteral(tokens, pos);
         op->type = ValueType::LITERAL;
         op->value = idToken.lexeme;
-    }
-    else if(check(tokens, pos, TokenType::NULL_KW)){
-        expect(tokens, pos, TokenType::NULL_KW);
-        op->type = ExpressionType::_NULL;
     }
     else {
         parseError(tokens, pos, "expected a value (column, literal or function call)");

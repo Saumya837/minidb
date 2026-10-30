@@ -515,6 +515,16 @@ FUNCTION: COUNT          FUNCTION: SUM
 (no children = *)        └─> ARG_LIST
                              └─> COLUMN: salary
 ```
+**Zero-argument calls (`NOW()`).** `COUNT(*)` is a `FUNCTION` with no
+children, so a call with no arguments cannot also be childless. `NOW()`
+carries an **empty `ARG_LIST` child**:
+```
+FUNCTION: NOW            FUNCTION: COUNT
+└─> ARG_LIST             (no children = *)
+```
+Existing `COUNT(*)` cases are unchanged, and the binder can tell "no
+arguments" from "star" by the child.
+
 `STAR` sits as an alternative to the *entire* `arg_list`, not inside
 `arg_item` — `arg_list := STAR | arg_item (COMMA arg_item)*` — so
 `COUNT(*, x)` is not even syntactically reachable, rather than being
@@ -656,7 +666,7 @@ Errors fall in three buckets, and only the first two exist yet:
 
 | Kind | Raised by | Example |
 |---|---|---|
-| Lexical | `tokenize()` | unterminated string, bad character |
+| Lexical | `tokenize()` | unterminated string, bad character, a lone `!` |
 | Syntax | parser (`parseError`) | `DELETE employees WHERE ...` (expected FROM) |
 | Semantic | future binder | unknown table, `HAVING` on a non-grouped column |
 
@@ -1494,9 +1504,18 @@ else if (sql[pos] == ')') { tokens.push_back({TokenType::RPAREN, ")"}); pos++; }
   not the lexer's concern — see **`SELECT *` and qualified star**
   above. The word is uppercased and looked up in `keywordTable`;
   matches become that keyword's `TokenType`, otherwise `IDENTIFIER`.
-- `'...'` → `STRING` token, quotes stripped from the stored lexeme
-- `>`/`<` → peek the next character; if `=` follows, consume both and
-  emit `GREATER_EQUAL`/`LESSER_EQUAL`, otherwise emit `GREATER`/`SMALLER`
+- `'...'` → `STRING` token, quotes stripped from the stored lexeme. A
+  string with no closing quote is a lexical error (it used to be
+  accepted)
+- `>` → peek the next character; if `=` follows, consume both and emit
+  `GREATER_EQUAL`, otherwise `GREATER`
+- `<` → peek the next character: `=` gives `LESSER_EQUAL`, `>` gives
+  `NOT_EQUALS` (lexeme `<>`), anything else `SMALLER`. Every branch that
+  consumes two characters advances past both; an early version left `pos`
+  on the `>` of `<>` and emitted a second token
+- `!` → only valid as `!=`, which gives `NOT_EQUALS` (lexeme `!=`). A
+  lone `!` is a lexical error; an early version dropped it silently, and
+  typed `!=` as the keyword `NOT`
 - `=`, `,`, `;`, `(`, `)`, `*` → single-character punctuation/operator
   tokens (a bare `*` not preceded by a letter/underscore hits this
   branch directly and becomes a `STAR` token immediately — only a
@@ -1604,13 +1623,13 @@ position          := NUMBER
 limit_clause      := LIMIT NUMBER
 ```
 
-**Implemented vs target.** Everything above is implemented **except** the
-expression layer from `not_expr` down and its uses (`projection_item`
-and `arg_list` as `expression`, `assignment` and `value` with `NULL` and
-unary minus, zero-argument calls). That part is the **target grammar**
-for the expression work; the code still has `or_expr → and_expr →
-comparison → operand` with the five comparators. See the status list
-for the stages.
+**Implemented vs target.** Stage 1 of the expression work is
+implemented: `!=` and `<>` (both `NOT_EQUALS`), zero-argument calls and
+`NULL` as a value. The rest of the expression layer from `not_expr` down
+(`IS [NOT] NULL`, `NOT`, arithmetic with unary minus, `IN`, `BETWEEN`,
+`LIKE`, and expressions as `projection_item`, `arg_list` and
+`assignment`) is the **target grammar**; the code still has `or_expr →
+and_expr → comparison → operand`. See the status list for the stages.
 
 **Notes on the target expression grammar**
 - **Negated forms are one rule.** `IS NOT NULL`, `NOT IN`, `NOT BETWEEN`
@@ -1892,13 +1911,16 @@ while (true) {
 - [x] Optional `FROM` in `SELECT` (see **`SELECT` without `FROM`**), with
       its cases
 - [x] `DELETE` restricted to one relation; comma lists and joins rejected
+- [x] Expression stage 1: `!=` and `<>` as `NOT_EQUALS`, lone `!` and
+      unterminated strings as lexical errors, zero-argument calls
+      (`NOW()` with an empty `ARG_LIST`), `NULL` as a value
 - [x] Schema-qualified relation names: `hr.employees` becomes `TABLE` with
       a `SCHEMA` child, with errors for extra, leading and trailing dots
 - [x] Whitespace in the lexer: any `isspace` character, not only `' '`
       (multi-line queries)
 - [x] Automated regression suite — `dumpTree`, `loadCases`, `runCase`,
       failure log, run statistics, `test_script` entry point, CMake
-      targets; 112 cases, all passing (see **Automated tests**)
+      targets; 145 cases, all passing (see **Automated tests**)
 - [x] `ctest` wiring: `enable_testing()`, `add_test(parser_cases)`, and a
       `TEST_DIR` compile definition for the default paths
 - [x] Test run triggered by `git commit` (post-commit hook running
@@ -1910,13 +1932,12 @@ while (true) {
       Then `CREATE INDEX`
 - [ ] The keyword-coverage lexer test (tokenize every keyword spelling,
       check none comes back as `IDENTIFIER`)
-- [ ] Settle node label naming (the 112 cases encode today's labels; see
+- [ ] Settle node label naming (the 145 cases encode today's labels; see
       **Open decision: node labels**)
 - [ ] A `pre-push` hook that runs `ctest` and blocks a push on failures
 - [ ] `isTypeToken` helper
-- [ ] Expression grammar (target grammar is written, code is not), in
-      stages: (1) `!=`/`<>`, `NULL` as a value, zero-argument calls;
-      (2) `IS [NOT] NULL`; (3) `NOT`; (4) arithmetic with precedence and
+- [ ] Expression grammar, remaining stages (stage 1 is done): (2)
+      `IS [NOT] NULL`; (3) `NOT`; (4) arithmetic with precedence and
       unary minus (check the lexer: `a*b` and `-5`); (5) `IN`,
       `BETWEEN`, `LIKE` and their `NOT` forms; then expressions in the
       select list, arguments and `SET`
@@ -1930,7 +1951,8 @@ while (true) {
 - [ ] Top-level `parseSQL(sql)` wrapper + error-handling contract
       (currently: caller runs `tokenize` then `parseStatement`
       separately, and exceptions propagate raw)
-- [ ] Semantic analysis (binder/catalog) — separate stage; its rules are
+- [ ] Semantic analysis (binder/catalog) — separate stage, plan in
+      **Catalog and binder plan**; not started. Its rules are
       collected in the sections above (qualifier resolution, `EQUALS`
       under `SET`, `TABLE` meaning under `DROP INDEX`, relation names, columns
       and `*` in a `SELECT` without `FROM`)
@@ -1941,6 +1963,40 @@ MATERIALIZED VIEW`, `CREATE FUNCTION`, `ALTER`, and `DROP` of objects
 other than tables and indexes. `parseCreateStatement` is a dispatcher so
 each can be added as one more branch without touching `parseCreateTable`.
 
+### Catalog and binder plan
+
+Status: **not started.** The directories are scaffolded; the design waits
+on studying how Postgres does it (`pg_namespace`, `pg_class`,
+`pg_attribute`, `pg_type`, then constraints and indexes). There is no
+deadline for it.
+
+The `engine` directory has been renamed `storage`. Planned layout:
+```
+common/    shared error module (one throw site)
+catalog/   types, table_schema, catalog, names (normalize); knows nothing
+           about SQL text or the AST
+binder/    bound structures, scope, binder (AST + Catalog -> bound statement)
+tests/binder_test/   cases with a --- setup block
+```
+Dependency direction, with no cycles: `common <- parser`, `common <-
+catalog`, `parser + catalog + common <- binder`, and everything below
+`session` / `storage`.
+
+Milestones, each ending with passing cases: (1) catalog structs, binder
+case format; (2) `CREATE` / `DROP TABLE` binding (duplicate table,
+duplicate column, multiple primary keys, `IF [NOT] EXISTS`); (3) `SELECT`
+from one table (columns, `*`); (4) aliases, joins, ambiguity; (5)
+expression types; (6) aggregates and `GROUP BY` rules; (7)
+`INSERT` / `UPDATE` / `DELETE`.
+
+Decisions to take from the Postgres study before coding: tables get a
+stable id (not just a name) so statistics, indexes and renames do not
+break; the function registry and statistics are separate stores, not
+fields of `TableSchema`; binding `CREATE TABLE` validates and produces a
+bound statement, and a separate step applies it to the catalog; names are
+normalized in one function; semantic errors use the same error function
+with their own class.
+
 ---
 
 ## Automated tests
@@ -1948,7 +2004,7 @@ each can be added as one more branch without touching `parseCreateTable`.
 Until now every query was checked by hand in the REPL. The regression
 suite replaces that: a file of cases, each a query with its expected
 result, run in one command, with failures logged instead of stopping the
-run. **Status: built end to end; 112 cases, all passing.**
+run. **Status: built end to end; 145 cases, all passing.**
 
 ### Design (from first principles)
 
@@ -2043,7 +2099,7 @@ tests/
     ├── ast_test.cpp  lexer_test.cpp  parse_test.cpp   (existing, moved here)
     ├── test_script.cpp           entry point: load cases, loop, summary, exit code
     ├── cases/
-    │   └── cases.txt             112 cases (trees and errors)
+    │   └── cases.txt             145 cases (trees and errors)
     ├── harness/
     │   ├── include/              tree_dump.hpp  case_loader.hpp  case_runner.hpp
     │   │                         failure_log.hpp  statistics.hpp  time_util.hpp
@@ -2178,7 +2234,7 @@ them before writing many cases: `GREATER_EQUAL` prints as
 `GREATER EQUAL` and `LESSER_EQUAL` as `SMALLER EQUAL` (the enum says
 LESSER, the label says SMALLER, the sibling `SMALLER` has no space), and
 clause labels use spaces (`GROUP BY`) while others use underscores
-(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 112 of them now.
+(`LEFT_JOIN`, `IF_EXISTS`). Renaming later means editing every case, and there are 145 of them now.
 
 ### Build order
 
@@ -2191,7 +2247,7 @@ clause labels use spaces (`GROUP BY`) while others use underscores
    `add_test`; `ctest --test-dir build --output-on-failure` runs the
    suite.
 6. [x] Reference queries moved in as cases and reviewed; coverage gaps
-   closed with further cases (112 in total).
+   closed with further cases (145 in total).
 
 **What the suite has caught**
 

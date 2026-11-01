@@ -206,6 +206,21 @@ std::unique_ptr<ASTNode> parseColumnDef(const std::vector<Token>& tokens, size_t
             unique->type = Constraints::UNIQUE;    // adapt: new tag + label "NOT_NULL"
             col->children.push_back(std::move(unique));
         }
+        else if (check(tokens, pos, TokenType::DEFAULT)) {
+            expect(tokens, pos, TokenType::DEFAULT);   // adapt: your NULL token name
+            auto val = std::make_unique<ASTNode>();
+            if(check(tokens, pos, TokenType::NULL_KW)){
+                expect(tokens, pos, TokenType::NULL_KW);
+                val->type = ValueType::_NULL;
+            }
+            else{
+                val = parseLiteral(tokens, pos);
+            }
+            auto defaults = std::make_unique<ASTNode>();
+            defaults->type = Constraints::DEFAULT;    // adapt: new tag + label "NOT_NULL"
+            defaults->children.push_back(std::move(val));
+            col->children.push_back(std::move(defaults));
+        }
         else {
             break;
         }
@@ -220,7 +235,7 @@ std::unique_ptr<ASTNode> parseCreateTable(const std::vector<Token>& tokens, size
 
     if (check(tokens, pos, TokenType::IF)) {
         expect(tokens, pos, TokenType::IF);
-        expect(tokens, pos, TokenType::NOT);
+        expect(tokens, pos, TokenType::NOT); 
         expect(tokens, pos, TokenType::EXISTS);
         auto ine = std::make_unique<ASTNode>();
         ine->type = Constraints::IF_NOT_EXISTS;

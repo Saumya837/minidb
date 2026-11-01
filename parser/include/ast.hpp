@@ -34,7 +34,7 @@ enum class OrderDirection {
 };
 
 enum class Constraints{
-    PRIMARY_KEY, FOREIGN_KEY, UNIQUE, IF_EXISTS, IF_NOT_EXISTS, AUTO_INCREMENT
+    PRIMARY_KEY, FOREIGN_KEY, UNIQUE, IF_EXISTS, IF_NOT_EXISTS, AUTO_INCREMENT, DEFAULT
 };
 
 using ASTTag = std::variant<StatementType, Clauses, Relations, ExpressionType, ValueType, OrderDirection, InternalNode, Constraints >;

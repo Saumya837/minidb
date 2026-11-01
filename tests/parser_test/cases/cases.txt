@@ -1507,3 +1507,60 @@ SELECT a FROM t WHERE a IS NOT 5;
 --- error
 Syntax error: at or near "5", expected NULL
 
+### create_default_number
+CREATE TABLE t (n INT DEFAULT 0);
+--- expect
+Create
+  TABLE: t
+  COLUMN: n
+    TYPE: INT
+    DEFAULT
+      LITERAL: 0
+
+### create_default_string
+CREATE TABLE t (name TEXT DEFAULT 'none');
+--- expect
+Create
+  TABLE: t
+  COLUMN: name
+    TYPE: TEXT
+    DEFAULT
+      LITERAL: none
+
+### create_default_null
+CREATE TABLE t (note TEXT DEFAULT NULL);
+--- expect
+Create
+  TABLE: t
+  COLUMN: note
+    TYPE: TEXT
+    DEFAULT
+      NULL
+
+### create_default_with_not_null
+CREATE TABLE t (n INT NOT NULL DEFAULT 5, m INT DEFAULT 7 NOT NULL);
+--- expect
+Create
+  TABLE: t
+  COLUMN: n
+    TYPE: INT
+    NOT_NULL
+    DEFAULT
+      LITERAL: 5
+  COLUMN: m
+    TYPE: INT
+    DEFAULT
+      LITERAL: 7
+    NOT_NULL
+
+### create_default_missing_value
+CREATE TABLE t (n INT DEFAULT);
+--- error
+Syntax error: at or near ")", expected a number or string
+
+### create_default_column_name
+CREATE TABLE t (n INT DEFAULT other);
+--- error
+Syntax error: at or near "other", expected a number or string
+
+
